@@ -1,0 +1,18 @@
+/ref/
+/data/real/
+/data/synthetic/
+/target/
+/scratch/*/target/
+/.pixi/
+/.ref_cache/
+
+
+# Added by cargo
+
+/target
+/data/
+/scratch/
+__pycache__/
+/.playwright-mcp/
+/dist/
+/testdata/data/

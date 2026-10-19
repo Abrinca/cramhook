@@ -1,0 +1,24 @@
+{
+  "truth_primary": 35,
+  "truth_any": 35,
+  "selected_reads": 36,
+  "bait_reads": 35,
+  "truth_selected": 35,
+  "recall_any": 1.0,
+  "recall_primary": 1.0,
+  "bait_not_truth": 0,
+  "bait_lift": {
+    "translated_reads": 0,
+    "remapped_reads": 7534,
+    "fallback": "tiny_input"
+  },
+  "prophage_finding": {
+    "contig": "FAM29080-p1-1.1_scf1",
+    "start": 272876,
+    "end": 293627,
+    "label": "finding_1",
+    "tier": "orange",
+    "likely": "collapsed_repeat",
+    "prophage_cover": 1.0
+  }
+}

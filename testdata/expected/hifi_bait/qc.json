@@ -1,0 +1,1836 @@
+{
+  "format_version": 1,
+  "analysis_type": "cramhook qc",
+  "version": "0.1.0",
+  "preset": "map-hifi",
+  "inputs": {
+    "in": "cramhook-testdata-v1/hifi/asm.cram",
+    "ref": "cramhook-testdata-v1/hifi/asm.fa"
+  },
+  "indel_min_af": 0.08,
+  "lowcov_abs": 10,
+  "reads": {
+    "total": 7534,
+    "mapped": 7533,
+    "unmapped": 1,
+    "unmapped_fraction": 0.00013273161667109106,
+    "bases_total": 52935686,
+    "bases_mapped": 52934520,
+    "bases_unmapped": 1166,
+    "mean_aligned_span": 6934.512412053631,
+    "records": {
+      "primary": 7533,
+      "supplementary": 348,
+      "secondary": 0,
+      "duplicate": 0,
+      "qcfail": 0,
+      "unmapped": 1,
+      "hard_clipped": 0
+    }
+  },
+  "assembly": {
+    "length_bp": 2079035,
+    "contigs": 6,
+    "assessable_bp": 2079035,
+    "assessable_fraction": 1.0,
+    "low_coverage_bp": 47622,
+    "low_coverage_fraction": 0.0229058192863516,
+    "confident_bp": 2031413
+  },
+  "alerts": {
+    "red": 0,
+    "orange": 7,
+    "yellow": 7,
+    "gray": 46,
+    "lowcov": {
+      "red": 0,
+      "orange": 0,
+      "yellow": 0,
+      "gray": 0
+    },
+    "by_type": {
+      "DEL": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "gray": 28,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        }
+      },
+      "INS": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "gray": 18,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        }
+      },
+      "SNP": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 3,
+        "gray": 0,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        }
+      },
+      "clip_hotspot": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 2,
+        "gray": 0,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        }
+      },
+      "depth_half": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "gray": 0,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        }
+      },
+      "depth_high": {
+        "red": 0,
+        "orange": 4,
+        "yellow": 0,
+        "gray": 0,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        }
+      },
+      "depth_low": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "gray": 0,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        }
+      },
+      "depth_step": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 2,
+        "gray": 0,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        }
+      },
+      "large_del": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "gray": 0,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        }
+      },
+      "large_ins": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "gray": 0,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        }
+      },
+      "linked_haplotype": {
+        "red": 0,
+        "orange": 1,
+        "yellow": 0,
+        "gray": 0,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        }
+      },
+      "snp_cluster": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "gray": 0,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        }
+      },
+      "split_junction": {
+        "red": 0,
+        "orange": 2,
+        "yellow": 0,
+        "gray": 0,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        }
+      }
+    }
+  },
+  "findings": {
+    "red": 0,
+    "orange": 2,
+    "yellow": 0,
+    "by_likely": {
+      "collapsed_repeat": 2
+    },
+    "lowcov": {
+      "red": 0,
+      "orange": 0,
+      "yellow": 0,
+      "by_likely": {}
+    }
+  },
+  "xlinks": 0,
+  "warnings": [
+    {
+      "code": "low_coverage",
+      "contigs": [
+        "FAM29080-p1-1.1_scf1"
+      ],
+      "bp": 47622,
+      "fraction": 0.0229058192863516,
+      "message": "FAM29080-p1-1.1_scf1: 2 % of the assembly below 10x (calls marked LowCov)"
+    }
+  ],
+  "qc_qv": 63.07798441175832,
+  "contigs": {
+    "FAM29080-p1-1.1_scf1": {
+      "length_bp": 1934799,
+      "circular": true,
+      "circular_by": "header",
+      "aligned_bases": 43208644,
+      "depth_mean": 22.34,
+      "depth_mode": 18,
+      "depth_mode_excludes_zero": true,
+      "covered_fraction": 1.0,
+      "copy_number": 1.0,
+      "assessable_bp": 1934799,
+      "low_coverage_bp": 47622,
+      "low_coverage_fraction": 0.02461340945493563,
+      "alerts": {
+        "red": 0,
+        "orange": 7,
+        "yellow": 7,
+        "gray": 40,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        },
+        "by_type": {
+          "DEL": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 24,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "INS": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 16,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "SNP": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 3,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "clip_hotspot": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 2,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_half": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_high": {
+            "red": 0,
+            "orange": 4,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_low": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_step": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 2,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "large_del": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "large_ins": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "linked_haplotype": {
+            "red": 0,
+            "orange": 1,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "snp_cluster": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "split_junction": {
+            "red": 0,
+            "orange": 2,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          }
+        }
+      },
+      "findings": {
+        "red": 0,
+        "orange": 2,
+        "yellow": 0,
+        "by_likely": {
+          "collapsed_repeat": 2
+        },
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "by_likely": {}
+        }
+      },
+      "warnings": [
+        {
+          "code": "low_coverage",
+          "reason": "abs",
+          "bp": 47622,
+          "fraction": 0.02461340945493563,
+          "message": "FAM29080-p1-1.1_scf1: 2 % of bases below 10x (calls marked LowCov)"
+        }
+      ],
+      "edge_clip_records": 68,
+      "depth_step_origin_dropped": 0,
+      "depth_skipped": null,
+      "circularity": {
+        "verdict": "circular",
+        "header_circular": true,
+        "spanning_reads": 33,
+        "end_reads": 33,
+        "start_reads": 35,
+        "clipped_at_end": 33,
+        "clipped_at_start": 35,
+        "junction": "clean",
+        "junction_offset_median": 0,
+        "junction_offset_consistent": 1.0
+      }
+    },
+    "FAM29080-p1-1.1_scf2": {
+      "length_bp": 69597,
+      "circular": true,
+      "circular_by": "header",
+      "aligned_bases": 5148953,
+      "depth_mean": 74.017,
+      "depth_mode": 74,
+      "depth_mode_excludes_zero": true,
+      "covered_fraction": 1.0,
+      "copy_number": 4.111,
+      "assessable_bp": 69597,
+      "low_coverage_bp": 0,
+      "low_coverage_fraction": 0.0,
+      "alerts": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "gray": 2,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        },
+        "by_type": {
+          "DEL": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "INS": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 2,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "SNP": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "clip_hotspot": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_half": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_high": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_low": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_step": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "large_del": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "large_ins": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "linked_haplotype": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "snp_cluster": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "split_junction": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          }
+        }
+      },
+      "findings": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "by_likely": {},
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "by_likely": {}
+        }
+      },
+      "warnings": [],
+      "edge_clip_records": 132,
+      "depth_step_origin_dropped": 0,
+      "depth_skipped": null,
+      "circularity": {
+        "verdict": "circular",
+        "header_circular": true,
+        "spanning_reads": 63,
+        "end_reads": 66,
+        "start_reads": 67,
+        "clipped_at_end": 66,
+        "clipped_at_start": 67,
+        "junction": "clean",
+        "junction_offset_median": 0,
+        "junction_offset_consistent": 1.0
+      }
+    },
+    "FAM29080-p1-1.1_scf3": {
+      "length_bp": 23727,
+      "circular": true,
+      "circular_by": "header",
+      "aligned_bases": 1549729,
+      "depth_mean": 65.347,
+      "depth_mode": 67,
+      "depth_mode_excludes_zero": true,
+      "covered_fraction": 1.0,
+      "copy_number": 3.722,
+      "assessable_bp": 23727,
+      "low_coverage_bp": 0,
+      "low_coverage_fraction": 0.0,
+      "alerts": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "gray": 3,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        },
+        "by_type": {
+          "DEL": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 3,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "INS": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "SNP": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "clip_hotspot": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_half": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_high": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_low": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_step": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "large_del": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "large_ins": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "linked_haplotype": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "snp_cluster": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "split_junction": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          }
+        }
+      },
+      "findings": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "by_likely": {},
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "by_likely": {}
+        }
+      },
+      "warnings": [],
+      "edge_clip_records": 125,
+      "depth_step_origin_dropped": 0,
+      "depth_skipped": null,
+      "circularity": {
+        "verdict": "circular",
+        "header_circular": true,
+        "spanning_reads": 60,
+        "end_reads": 65,
+        "start_reads": 60,
+        "clipped_at_end": 65,
+        "clipped_at_start": 60,
+        "junction": "clean",
+        "junction_offset_median": 0,
+        "junction_offset_consistent": 1.0
+      }
+    },
+    "FAM29080-p1-1.1_scf4": {
+      "length_bp": 20593,
+      "circular": true,
+      "circular_by": "header",
+      "aligned_bases": 966270,
+      "depth_mean": 46.935,
+      "depth_mode": 41,
+      "depth_mode_excludes_zero": true,
+      "covered_fraction": 1.0,
+      "copy_number": 2.278,
+      "assessable_bp": 20593,
+      "low_coverage_bp": 0,
+      "low_coverage_fraction": 0.0,
+      "alerts": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "gray": 0,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        },
+        "by_type": {
+          "DEL": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "INS": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "SNP": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "clip_hotspot": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_half": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_high": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_low": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_step": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "large_del": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "large_ins": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "linked_haplotype": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "snp_cluster": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "split_junction": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          }
+        }
+      },
+      "findings": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "by_likely": {},
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "by_likely": {}
+        }
+      },
+      "warnings": [],
+      "edge_clip_records": 80,
+      "depth_step_origin_dropped": 0,
+      "depth_skipped": null,
+      "circularity": {
+        "verdict": "circular",
+        "header_circular": true,
+        "spanning_reads": 40,
+        "end_reads": 41,
+        "start_reads": 41,
+        "clipped_at_end": 40,
+        "clipped_at_start": 40,
+        "junction": "clean",
+        "junction_offset_median": 0,
+        "junction_offset_consistent": 1.0
+      }
+    },
+    "FAM29080-p1-1.1_scf5": {
+      "length_bp": 19989,
+      "circular": true,
+      "circular_by": "header",
+      "aligned_bases": 1486159,
+      "depth_mean": 74.376,
+      "depth_mode": 70,
+      "depth_mode_excludes_zero": true,
+      "covered_fraction": 1.0,
+      "copy_number": 3.889,
+      "assessable_bp": 19989,
+      "low_coverage_bp": 0,
+      "low_coverage_fraction": 0.0,
+      "alerts": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "gray": 0,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        },
+        "by_type": {
+          "DEL": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "INS": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "SNP": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "clip_hotspot": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_half": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_high": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_low": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_step": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "large_del": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "large_ins": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "linked_haplotype": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "snp_cluster": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "split_junction": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          }
+        }
+      },
+      "findings": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "by_likely": {},
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "by_likely": {}
+        }
+      },
+      "warnings": [],
+      "edge_clip_records": 143,
+      "depth_step_origin_dropped": 0,
+      "depth_skipped": null,
+      "circularity": {
+        "verdict": "circular",
+        "header_circular": true,
+        "spanning_reads": 70,
+        "end_reads": 71,
+        "start_reads": 74,
+        "clipped_at_end": 71,
+        "clipped_at_start": 73,
+        "junction": "clean",
+        "junction_offset_median": 0,
+        "junction_offset_consistent": 1.0
+      }
+    },
+    "FAM29080-p1-1.1_scf6": {
+      "length_bp": 10330,
+      "circular": true,
+      "circular_by": "header",
+      "aligned_bases": 547768,
+      "depth_mean": 53.045,
+      "depth_mode": 51,
+      "depth_mode_excludes_zero": true,
+      "covered_fraction": 1.0,
+      "copy_number": 2.833,
+      "assessable_bp": 10330,
+      "low_coverage_bp": 0,
+      "low_coverage_fraction": 0.0,
+      "alerts": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "gray": 1,
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "gray": 0
+        },
+        "by_type": {
+          "DEL": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 1,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "INS": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "SNP": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "clip_hotspot": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_half": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_high": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_low": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "depth_step": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "large_del": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "large_ins": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "linked_haplotype": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "snp_cluster": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          },
+          "split_junction": {
+            "red": 0,
+            "orange": 0,
+            "yellow": 0,
+            "gray": 0,
+            "lowcov": {
+              "red": 0,
+              "orange": 0,
+              "yellow": 0,
+              "gray": 0
+            }
+          }
+        }
+      },
+      "findings": {
+        "red": 0,
+        "orange": 0,
+        "yellow": 0,
+        "by_likely": {},
+        "lowcov": {
+          "red": 0,
+          "orange": 0,
+          "yellow": 0,
+          "by_likely": {}
+        }
+      },
+      "warnings": [],
+      "edge_clip_records": 99,
+      "depth_step_origin_dropped": 0,
+      "depth_skipped": null,
+      "circularity": {
+        "verdict": "circular",
+        "header_circular": true,
+        "spanning_reads": 48,
+        "end_reads": 49,
+        "start_reads": 51,
+        "clipped_at_end": 48,
+        "clipped_at_start": 48,
+        "junction": "clean",
+        "junction_offset_median": 0,
+        "junction_offset_consistent": 1.0
+      }
+    }
+  },
+  "candidates": {
+    "SNP": 4,
+    "INS": 230,
+    "DEL": 456,
+    "total": 690
+  },
+  "background": [
+    {
+      "class": "SNP",
+      "p": 6.06681492292122e-05,
+      "rho": 0.011709336663573357,
+      "alpha": 0.005120509143071648,
+      "beta": 84.39681375335924,
+      "fit_sites": 2079032,
+      "m": 2079035,
+      "fallback": false,
+      "candidates": 4
+    },
+    {
+      "class": "INS_HP1",
+      "p": 0.00011223302426545444,
+      "rho": 0.0002861091993079351,
+      "alpha": 0.39216115258141615,
+      "beta": 3493.776824741209,
+      "fit_sites": 1445992,
+      "m": 1445992,
+      "fallback": false,
+      "candidates": 4
+    },
+    {
+      "class": "INS_HP2",
+      "p": 0.00039828067131240556,
+      "rho": 0.0011553689401579699,
+      "alpha": 0.3443233553958212,
+      "beta": 864.180069106871,
+      "fit_sites": 422358,
+      "m": 422358,
+      "fallback": false,
+      "candidates": 21
+    },
+    {
+      "class": "INS_HP3",
+      "p": 0.0010136507994026158,
+      "rho": 0.0009062158849508075,
+      "alpha": 1.1175396831643254,
+      "beta": 1101.3722761616368,
+      "fit_sites": 120588,
+      "m": 120588,
+      "fallback": false,
+      "candidates": 23
+    },
+    {
+      "class": "INS_HP4",
+      "p": 0.002060020205983685,
+      "rho": 0.002240899221530292,
+      "alpha": 0.9172228222312205,
+      "beta": 444.332207045975,
+      "fit_sites": 42432,
+      "m": 42432,
+      "fallback": false,
+      "candidates": 32
+    },
+    {
+      "class": "INS_HP5",
+      "p": 0.004044143896045613,
+      "rho": 0.0031973817149845533,
+      "alpha": 1.2607857252098862,
+      "beta": 310.4951155528554,
+      "fit_sites": 15031,
+      "m": 15031,
+      "fallback": false,
+      "candidates": 38
+    },
+    {
+      "class": "INS_HP6",
+      "p": 0.007492375016576051,
+      "rho": 0.006005729305857885,
+      "alpha": 1.2400455400319956,
+      "beta": 164.26762556406143,
+      "fit_sites": 5202,
+      "m": 5202,
+      "fallback": false,
+      "candidates": 36
+    },
+    {
+      "class": "INS_HP7",
+      "p": 0.014356161858235782,
+      "rho": 0.006419061486067176,
+      "alpha": 2.2221330647049298,
+      "beta": 152.56388054032738,
+      "fit_sites": 1647,
+      "m": 1647,
+      "fallback": false,
+      "candidates": 47
+    },
+    {
+      "class": "INS_HP8+",
+      "p": 0.0003276167176122629,
+      "rho": 0.004106992921254391,
+      "alpha": 0.07944284402917655,
+      "beta": 242.40770679891978,
+      "fit_sites": 330,
+      "m": 330,
+      "fallback": true,
+      "candidates": 29
+    },
+    {
+      "class": "INS_STR",
+      "p": 0.0001316317035714556,
+      "rho": 1e-06,
+      "alpha": 131.63157193975204,
+      "beta": 999867.3684280602,
+      "fit_sites": 25461,
+      "m": 25461,
+      "fallback": false,
+      "candidates": 0
+    },
+    {
+      "class": "DEL_HP1",
+      "p": 3.590586331323312e-05,
+      "rho": 0.00014561092365817255,
+      "alpha": 0.2465517979378354,
+      "beta": 6866.370072539532,
+      "fit_sites": 1445992,
+      "m": 1445992,
+      "fallback": false,
+      "candidates": 0
+    },
+    {
+      "class": "DEL_HP2",
+      "p": 0.00047722924758003527,
+      "rho": 0.00041897475163092424,
+      "alpha": 1.1385633590512287,
+      "beta": 2384.6401055400765,
+      "fit_sites": 422358,
+      "m": 422358,
+      "fallback": false,
+      "candidates": 13
+    },
+    {
+      "class": "DEL_HP3",
+      "p": 0.0012705415541825957,
+      "rho": 0.0013617871964275133,
+      "alpha": 0.9317251258420965,
+      "beta": 732.3973995886367,
+      "fit_sites": 120588,
+      "m": 120588,
+      "fallback": false,
+      "candidates": 51
+    },
+    {
+      "class": "DEL_HP4",
+      "p": 0.003023563257380593,
+      "rho": 0.0021322728556861553,
+      "alpha": 1.4149765999570147,
+      "beta": 466.5681543972271,
+      "fit_sites": 42432,
+      "m": 42432,
+      "fallback": false,
+      "candidates": 65
+    },
+    {
+      "class": "DEL_HP5",
+      "p": 0.006109564170823006,
+      "rho": 0.00429247418074815,
+      "alpha": 1.4172103938674916,
+      "beta": 230.54866380638373,
+      "fit_sites": 15031,
+      "m": 15031,
+      "fallback": false,
+      "candidates": 88
+    },
+    {
+      "class": "DEL_HP6",
+      "p": 0.011419057301566253,
+      "rho": 0.008008264920243337,
+      "alpha": 1.414489977338521,
+      "beta": 122.45650392200095,
+      "fit_sites": 5202,
+      "m": 5202,
+      "fallback": false,
+      "candidates": 110
+    },
+    {
+      "class": "DEL_HP7",
+      "p": 0.020347497465204166,
+      "rho": 0.0053734903731180545,
+      "alpha": 3.7662969463392426,
+      "beta": 181.3324825364895,
+      "fit_sites": 1647,
+      "m": 1647,
+      "fallback": false,
+      "candidates": 90
+    },
+    {
+      "class": "DEL_HP8+",
+      "p": 0.00035639181916494314,
+      "rho": 0.00657250878245396,
+      "alpha": 0.05386823243943941,
+      "beta": 151.09503458372885,
+      "fit_sites": 330,
+      "m": 330,
+      "fallback": true,
+      "candidates": 39
+    },
+    {
+      "class": "DEL_STR",
+      "p": 0.00011196259844008866,
+      "rho": 0.0023098365412602215,
+      "alpha": 0.04836012468571167,
+      "beta": 431.8827075665419,
+      "fit_sites": 25461,
+      "m": 25461,
+      "fallback": false,
+      "candidates": 0
+    }
+  ],
+  "params": {
+    "linear": [],
+    "candidates": false,
+    "min_depth": 5,
+    "max_mq0_frac": 0.5,
+    "min_alt": 2,
+    "snp_min_af": 0.08,
+    "indel_min_af": null,
+    "lowcov_abs": null,
+    "lowcov_rel": 0.25,
+    "lowcov_merge": 50,
+    "lowcov_min_len": 100,
+    "fit_max_af": 0.3,
+    "min_fit_sites": 1000,
+    "fdr": 0.01,
+    "strand_min_dp": 3,
+    "strand_ratio": 0.3333333333333333,
+    "red_min_alt": 5,
+    "red_min_wilson": 0.5,
+    "mixed_min_af": 0.4,
+    "yellow_strand_gate": true,
+    "gray_homopolymer": true,
+    "gray_hp_min": 5,
+    "large_merge_gap": 50,
+    "large_min": 50,
+    "large_piece_min": 10,
+    "large_min_support": 3,
+    "large_min_ratio": 0.3,
+    "large_ins_window": 100,
+    "cluster_window": 500,
+    "cluster_min_sites": 5,
+    "cluster_min_af": 0.1,
+    "cluster_min_alt": 2,
+    "cluster_site_p": 0.001,
+    "cluster_density_p": null,
+    "cluster_strand": "ratio",
+    "ins_group_min_len": 10,
+    "ins_group_len_frac": 0.1,
+    "ins_group_max_diff": 0.2,
+    "clip_min_len": 50,
+    "clip_merge": 50,
+    "clip_min_reads": 3,
+    "clip_yellow": 0.15,
+    "clip_high_s": 100.0,
+    "clip_pair_dist": 50,
+    "clip_edge": 100,
+    "depth_window": 500,
+    "depth_low": 0.25,
+    "depth_half_min": 0.35,
+    "depth_half_max": 0.65,
+    "depth_half_max_mapq": 0.25,
+    "depth_high": 1.75,
+    "depth_high_min_mapq": 0.75,
+    "depth_gap_windows": 1,
+    "depth_min_len": 1000,
+    "depth_baseline_span": 50000,
+    "step_window": 100,
+    "step_span": 25000,
+    "step_nms": 500,
+    "step_yellow": 8.0,
+    "step_red": 20.0,
+    "finding_merge": 1000,
+    "finding_site_join": 50,
+    "finding_link_max": 100000,
+    "link_min_af": 0.05,
+    "link_window": 5000,
+    "link_min_reads": 3,
+    "link_min_conc": 0.8,
+    "link_p": 1e-06,
+    "link_strand_p": 0.01,
+    "link_conflict_min_reads": 6,
+    "link_conflict_max_share": 0.3,
+    "unlinked_action": "drop",
+    "circ_end_tol": 50,
+    "circ_min_reads": 3,
+    "circ_min_frac": 0.3,
+    "junction_min_dist": 1000,
+    "junction_max_gap": 200,
+    "junction_tol": 200,
+    "junction_edge_excl": 2000,
+    "junction_min_reads": 5,
+    "junction_yellow": 0.02,
+    "xlink_max_gap": 1000
+  },
+  "chunks": 15,
+  "linkage": {
+    "regions": 2,
+    "pairs_tested": 4,
+    "groups": 1,
+    "linked_sites": 3,
+    "unlinked_sites": 0,
+    "clusters_coincident": 0
+  },
+  "circularity": {
+    "circular": 6,
+    "linear": 0,
+    "unclear": 0
+  }
+}

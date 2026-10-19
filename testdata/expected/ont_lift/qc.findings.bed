@@ -1,0 +1,4 @@
+#contig	start	end	label	score	tier	likely	extra
+1	543193	563938	finding_1	6	orange	misjoin	evidence=clips,clips_both,depth_step;members=clip_hotspot:2,depth_step:2,split_junction:2;lowcov=0
+1	610832	610834	finding_2	1	yellow	mixed	evidence=site_mixed;members=DEL:1;lowcov=1
+1	1127315	1127317	finding_3	1	yellow	mixed	evidence=site_mixed;members=DEL:1;lowcov=0

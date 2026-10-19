@@ -1,0 +1,46 @@
+{
+  "format_version": 1,
+  "reads": {
+    "reads": 13,
+    "bp": 132391,
+    "by_reason": {
+      "clip": {
+        "reads": 9,
+        "bp": 119796
+      },
+      "unmapped": {
+        "reads": 4,
+        "bp": 12595
+      }
+    }
+  },
+  "records": {
+    "total": 6977,
+    "primary": 6086,
+    "supplementary": 887,
+    "secondary": 0,
+    "duplicate": 0,
+    "qcfail": 0,
+    "unmapped": 4,
+    "mapped_bp": 53344004,
+    "unmapped_bp": 12595
+  },
+  "params": {
+    "scope": "findings",
+    "min_tier": "yellow",
+    "finding_pad": 1000,
+    "unmapped": true,
+    "clips": true,
+    "indels": true,
+    "linked": true,
+    "bait": false,
+    "locus": false,
+    "locus_flank": 5000,
+    "clip_min_len": 50,
+    "indel_min_len": 50,
+    "indel_merge_gap": 50,
+    "indel_piece_min": 10
+  },
+  "bait": null,
+  "notes": []
+}

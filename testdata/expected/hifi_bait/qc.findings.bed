@@ -1,0 +1,3 @@
+#contig	start	end	label	score	tier	likely	extra
+FAM29080-p1-1.1_scf1	272876	293627	finding_1	13	orange	collapsed_repeat	evidence=site_minor,clips,clips_both,depth_high,depth_step,linked;members=SNP:3,clip_hotspot:2,depth_high:3,depth_step:2,linked_haplotype:1,split_junction:2;lowcov=0
+FAM29080-p1-1.1_scf1	660500	661500	finding_2	1	orange	collapsed_repeat	evidence=depth_high;members=depth_high:1;lowcov=0

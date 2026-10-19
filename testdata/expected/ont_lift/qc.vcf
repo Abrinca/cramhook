@@ -1,0 +1,58 @@
+##fileformat=VCFv4.2
+##format_version=1
+##source=cramhook qc 0.1.0
+##reference=cramhook-testdata-v1/ont/polished.fa
+##cramhook_preset=lr:hq
+##contig=<ID=1,length=1934799>
+##contig=<ID=4,length=20593>
+##contig=<ID=5,length=19989>
+##contig=<ID=3,length=23726>
+##contig=<ID=2,length=69597>
+##contig=<ID=6,length=10330>
+##FILTER=<ID=LowCov,Description="DP < 20: too few reads to trust the call">
+##INFO=<ID=TIER,Number=1,Type=String,Description="What the reads show: RED, ORANGE, YELLOW or GRAY (homopolymer indel, below yellow)">
+##INFO=<ID=TYPE,Number=1,Type=String,Description="SNP, INS or DEL">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Alt reads / DP">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Reads with a base or a deletion at the position (unlike bcftools, deletions are counted); secondary, duplicate and QC-fail records excluded, supplementary included">
+##INFO=<ID=AD,Number=R,Type=Integer,Description="Ref and alt read counts (indel ref = DP minus all indel alleles at the anchor)">
+##INFO=<ID=ADF,Number=R,Type=Integer,Description="Ref and alt read counts, forward strand">
+##INFO=<ID=ADR,Number=R,Type=Integer,Description="Ref and alt read counts, reverse strand">
+##INFO=<ID=DP4,Number=4,Type=Integer,Description="Ref-forward, ref-reverse, alt-forward, alt-reverse reads">
+##INFO=<ID=HP,Number=1,Type=Integer,Description="Homopolymer run length (SNP: run containing the position; indel: run starting after the anchor)">
+##INFO=<ID=STR,Number=1,Type=Integer,Description="Tandem-repeat span (period 2-4, >= 3 copies) at the position / after the anchor; 0 if none">
+##INFO=<ID=CLASS,Number=1,Type=String,Description="Background class used for the test">
+##INFO=<ID=PV,Number=1,Type=Float,Description="Beta-binomial upper-tail p-value against the class background">
+##INFO=<ID=QV,Number=1,Type=Float,Description="Benjamini-Hochberg q-value (m = assessable positions of the class)">
+##INFO=<ID=MQ0F,Number=1,Type=Float,Description="Share of MAPQ 0 reads in DP">
+##INFO=<ID=MIXED,Number=0,Type=Flag,Description="Alt fraction in the mixed band">
+##INFO=<ID=HPGRAY,Number=0,Type=Flag,Description="Gray: a minority/strand-biased yellow INS/DEL in a homopolymer >= --gray-hp-min (TIER=GRAY; not counted in red/orange/yellow)">
+##INFO=<ID=STRAND,Number=0,Type=Flag,Description="Strand-balance gate failed">
+##INFO=<ID=LOWCOV,Number=0,Type=Flag,Description="Low coverage: DP < 20 (abs) or DP < 0.25 x the contig depth mode (rel); only abs sets FILTER=LowCov">
+##INFO=<ID=LINKED,Number=1,Type=Integer,Description="Haplotype group id from the linkage second pass">
+##INFO=<ID=UNLINKED,Number=0,Type=Flag,Description="Tested against >= 2 partner sites within the linkage window and linked to none">
+##INFO=<ID=GROUPED,Number=1,Type=Integer,Description="Exact insertion alleles merged into this candidate (only when > 1)">
+##INFO=<ID=ORIGIN,Number=0,Type=Flag,Description="Indel before the first reference base (right-padded: anchor base is the last REF/ALT base)">
+##INFO=<ID=REASON,Number=1,Type=String,Description="Tier rule that fired">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype (haploid)">
+##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Ref and alt read counts">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth as INFO/DP">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sample
+1	31881	.	AT	A	51.7	LowCov	TIER=GRAY;TYPE=DEL;AF=0.3750;DP=8;AD=5,3;ADF=2,1;ADR=3,2;DP4=2,3,1,2;HP=9;STR=0;CLASS=DEL_HP8+;PV=6.714e-6;QV=1.573e-4;MQ0F=0.000;HPGRAY;LOWCOV;REASON=minority	GT:AD:DP	1:5,3:8
+1	194797	.	AT	A	45.0	LowCov	TIER=GRAY;TYPE=DEL;AF=0.2308;DP=13;AD=9,3;ADF=3,1;ADR=6,2;DP4=3,6,1,2;HP=10;STR=0;CLASS=DEL_HP8+;PV=3.182e-5;QV=5.798e-4;MQ0F=0.000;HPGRAY;LOWCOV;REASON=minority	GT:AD:DP	1:9,3:13
+1	312863	.	GA	G	70.0	LowCov	TIER=GRAY;TYPE=DEL;AF=0.5000;DP=14;AD=7,7;ADF=5,1;ADR=2,6;DP4=5,2,1,6;HP=5;STR=0;CLASS=DEL_HP5;PV=1.011e-7;QV=1.516e-3;MQ0F=0.000;HPGRAY;STRAND;LOWCOV;REASON=strand_bias	GT:AD:DP	1:7,7:14
+1	610833	.	TG	T	87.9	LowCov	TIER=YELLOW;TYPE=DEL;AF=0.4706;DP=17;AD=9,8;ADF=5,0;ADR=4,8;DP4=5,4,0,8;HP=3;STR=0;CLASS=DEL_HP3;PV=1.611e-9;QV=1.939e-4;MQ0F=0.000;STRAND;LOWCOV;REASON=strand_bias	GT:AD:DP	1:9,8:17
+1	611205	.	CA	C	99.2	LowCov	TIER=GRAY;TYPE=DEL;AF=0.4444;DP=18;AD=8,8;ADF=5,0;ADR=3,8;DP4=5,3,0,8;HP=10;STR=0;CLASS=DEL_HP8+;PV=1.195e-10;QV=5.599e-9;MQ0F=0.000;HPGRAY;STRAND;LOWCOV;REASON=strand_bias	GT:AD:DP	1:8,8:18
+1	650887	.	CA	C	103.9	PASS	TIER=GRAY;TYPE=DEL;AF=0.3704;DP=27;AD=15,10;ADF=10,3;ADR=5,7;DP4=10,5,3,7;HP=11;STR=0;CLASS=DEL_HP8+;PV=4.119e-11;QV=2.702e-9;MQ0F=0.000;HPGRAY;REASON=minority	GT:AD:DP	1:15,10:27
+1	1080676	.	GT	G	50.3	PASS	TIER=GRAY;TYPE=DEL;AF=0.2000;DP=20;AD=16,4;ADF=7,2;ADR=9,2;DP4=7,9,2,2;HP=8;STR=0;CLASS=DEL_HP8+;PV=9.288e-6;QV=2.031e-4;MQ0F=0.000;HPGRAY;REASON=minority	GT:AD:DP	1:16,4:20
+1	1127316	.	GT	G	146.5	PASS	TIER=YELLOW;TYPE=DEL;AF=0.5652;DP=23;AD=5,13;ADF=0,4;ADR=5,9;DP4=0,5,4,9;HP=11;STR=0;CLASS=DEL_HP8+;PV=2.244e-15;QV=3.680e-13;MQ0F=0.000;REASON=weak_majority	GT:AD:DP	1:5,13:23
+1	1149111	.	GT	G	58.2	PASS	TIER=GRAY;TYPE=DEL;AF=0.2174;DP=23;AD=13,5;ADF=6,3;ADR=7,2;DP4=6,7,3,2;HP=9;STR=0;CLASS=DEL_HP8+;PV=1.504e-6;QV=4.111e-5;MQ0F=0.000;HPGRAY;REASON=minority	GT:AD:DP	1:13,5:23
+1	1149111	.	G	GT	60.7	PASS	TIER=GRAY;TYPE=INS;AF=0.1739;DP=23;AD=13,4;ADF=6,3;ADR=7,1;DP4=6,7,3,1;HP=9;STR=0;CLASS=INS_HP8+;PV=8.522e-7;QV=1.398e-4;MQ0F=0.000;HPGRAY;REASON=minority	GT:AD:DP	1:13,4:23
+1	1316782	.	CT	C	41.5	LowCov	TIER=GRAY;TYPE=DEL;AF=0.1765;DP=17;AD=14,3;ADF=8,2;ADR=6,1;DP4=8,6,2,1;HP=8;STR=0;CLASS=DEL_HP8+;PV=7.137e-5;QV=1.115e-3;MQ0F=0.000;HPGRAY;LOWCOV;REASON=minority	GT:AD:DP	1:14,3:17
+1	1464635	.	TA	T	33.4	LowCov	TIER=GRAY;TYPE=DEL;AF=0.1818;DP=11;AD=7,2;ADF=3,1;ADR=4,1;DP4=3,4,1,1;HP=8;STR=0;CLASS=DEL_HP8+;PV=4.596e-4;QV=6.030e-3;MQ0F=0.000;HPGRAY;LOWCOV;REASON=minority	GT:AD:DP	1:7,2:11
+1	1848024	.	TA	T	31.9	LowCov	TIER=GRAY;TYPE=DEL;AF=0.1538;DP=13;AD=9,2;ADF=5,1;ADR=4,1;DP4=5,4,1,1;HP=8;STR=6;CLASS=DEL_HP8+;PV=6.401e-4;QV=7.240e-3;MQ0F=0.000;HPGRAY;LOWCOV;REASON=minority	GT:AD:DP	1:9,2:13
+1	1848024	.	TAA	T	31.9	LowCov	TIER=GRAY;TYPE=DEL;AF=0.1538;DP=13;AD=9,2;ADF=5,1;ADR=4,1;DP4=5,4,1,1;HP=8;STR=6;CLASS=DEL_HP8+;PV=6.401e-4;QV=7.240e-3;MQ0F=0.000;HPGRAY;LOWCOV;REASON=minority	GT:AD:DP	1:9,2:13
+3	3565	.	GA	G	101.0	PASS	TIER=GRAY;TYPE=DEL;AF=0.1786;DP=140;AD=105,25;ADF=59,11;ADR=46,14;DP4=59,46,11,14;HP=9;STR=0;CLASS=DEL_HP8+;PV=7.906e-11;QV=4.322e-9;MQ0F=0.000;HPGRAY;REASON=minority	GT:AD:DP	1:105,25:140
+3	3604	.	CT	C	104.8	PASS	TIER=GRAY;TYPE=DEL;AF=0.1857;DP=140;AD=67,26;ADF=25,15;ADR=42,11;DP4=25,42,15,11;HP=8;STR=0;CLASS=DEL_HP8+;PV=3.319e-11;QV=2.702e-9;MQ0F=0.000;HPGRAY;REASON=minority	GT:AD:DP	1:67,26:140
+3	3604	.	C	CT	282.6	PASS	TIER=GRAY;TYPE=INS;AF=0.2857;DP=140;AD=67,40;ADF=25,28;ADR=42,12;DP4=25,42,28,12;HP=8;STR=0;CLASS=INS_HP8+;PV=5.549e-29;QV=1.820e-26;MQ0F=0.000;HPGRAY;REASON=minority	GT:AD:DP	1:67,40:140
+6	7424	.	AT	A	199.7	PASS	TIER=GRAY;TYPE=DEL;AF=0.3142;DP=226;AD=59,71;ADF=25,45;ADR=34,26;DP4=25,34,45,26;HP=14;STR=0;CLASS=DEL_HP8+;PV=1.082e-20;QV=3.548e-18;MQ0F=0.000;HPGRAY;REASON=minority	GT:AD:DP	1:59,71:226
+6	7424	.	ATT	A	117.8	PASS	TIER=GRAY;TYPE=DEL;AF=0.1858;DP=226;AD=59,42;ADF=25,12;ADR=34,30;DP4=25,34,12,30;HP=14;STR=0;CLASS=DEL_HP8+;PV=1.642e-12;QV=1.795e-10;MQ0F=0.000;HPGRAY;REASON=minority	GT:AD:DP	1:59,42:226

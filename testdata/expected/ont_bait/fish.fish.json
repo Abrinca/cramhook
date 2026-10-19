@@ -1,0 +1,70 @@
+{
+  "format_version": 1,
+  "reads": {
+    "reads": 29,
+    "bp": 195761,
+    "by_reason": {
+      "bait": {
+        "reads": 22,
+        "bp": 143245
+      },
+      "clip": {
+        "reads": 9,
+        "bp": 119796
+      },
+      "unmapped": {
+        "reads": 4,
+        "bp": 12595
+      }
+    }
+  },
+  "records": {
+    "total": 6977,
+    "primary": 6086,
+    "supplementary": 887,
+    "secondary": 0,
+    "duplicate": 0,
+    "qcfail": 0,
+    "unmapped": 4,
+    "mapped_bp": 53344004,
+    "unmapped_bp": 12595
+  },
+  "params": {
+    "scope": "findings",
+    "min_tier": "yellow",
+    "finding_pad": 1000,
+    "unmapped": true,
+    "clips": true,
+    "indels": true,
+    "linked": true,
+    "bait": true,
+    "locus": false,
+    "locus_flank": 5000,
+    "clip_min_len": 50,
+    "indel_min_len": 50,
+    "indel_merge_gap": 50,
+    "indel_piece_min": 10
+  },
+  "bait": {
+    "contigs": [
+      {
+        "name": "FAM29080-p1-1.1_scf7",
+        "length": 20262,
+        "reads": 22,
+        "bp": 143245,
+        "mapq0_reads": 17
+      }
+    ],
+    "reads": 22,
+    "bp": 143245,
+    "mapq0_reads": 17,
+    "mode": "any",
+    "supplementary_only_reads": 1,
+    "translated_reads": 5646,
+    "remapped_reads": 444,
+    "contract_ok": true,
+    "contract_reason": null,
+    "fallback": null
+  },
+  "notes": []
+}

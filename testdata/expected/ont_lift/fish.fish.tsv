@@ -1,0 +1,14 @@
+read	length	reason	finding	contig	pos	strand	record	detail	sa
+120a25ce-05fb-45f1-9a78-f06fc3c1f82f	103	clip	finding_1	1	553201	+	primary	side=left;len=103	.
+4b3325f5-7c77-456f-8ff0-34bc1decd918	6817	clip	finding_1	1	563742	+	supplementary	side=right;len=6817	1:543394:+
+5c4bdb18-08e8-4ffc-a448-cdab351bda13	2143	unmapped	.	.	.	.	.	.	.
+7251ab84-0f65-4b10-81ef-04a454867ebb	1390	clip	finding_1	1	543393	+	supplementary	side=left;len=1390	1:562264:+
+7ddf9477-8a19-48c6-bd03-6b3a660a80fc	1502	unmapped	.	.	.	.	.	.	.
+9c3edaaf-6c0b-4737-a40c-a5387a16ff62	4202	unmapped	.	.	.	.	.	.	.
+aa370659-04e0-4fbc-80eb-80579ab39286	147	clip	finding_1	1	553369	+	primary	side=right;len=147	.
+b943cdd4-b733-4bab-ae93-f4913d39cdad	4748	unmapped	.	.	.	.	.	.	.
+c1d59d7a-f795-4ab3-9d73-23fcf169cb51	34414	clip	finding_1	1	543393	-	supplementary	side=left;len=34414	1:543394:-,1:549487:-
+d1983982-e81e-4a43-a98b-7cd1abf0bbe2	15158	clip	finding_1	1	563742	-	supplementary	side=right;len=15158	1:543394:-
+d9daeaaf-68a7-413e-a37e-ef750b48ee75	109	clip	finding_1	1	546471	-	primary	side=right;len=109	.
+e7c0ff73-7868-4152-96fe-7d11d2d06570	5097	clip	finding_1	1	543393	+	supplementary	side=left;len=5097	1:558562:+
+e7eb57f3-744d-4894-81a3-684c11216201	9199	clip	finding_1	1	543393	-	supplementary	side=left;len=9199	1:554458:-

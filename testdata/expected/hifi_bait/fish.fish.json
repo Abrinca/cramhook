@@ -1,0 +1,74 @@
+{
+  "format_version": 1,
+  "reads": {
+    "reads": 36,
+    "bp": 215266,
+    "by_reason": {
+      "bait": {
+        "reads": 35,
+        "bp": 214100
+      },
+      "clip": {
+        "reads": 12,
+        "bp": 99313
+      },
+      "linked": {
+        "reads": 10,
+        "bp": 79279
+      },
+      "unmapped": {
+        "reads": 1,
+        "bp": 1166
+      }
+    }
+  },
+  "records": {
+    "total": 7882,
+    "primary": 7533,
+    "supplementary": 348,
+    "secondary": 0,
+    "duplicate": 0,
+    "qcfail": 0,
+    "unmapped": 1,
+    "mapped_bp": 52934520,
+    "unmapped_bp": 1166
+  },
+  "params": {
+    "scope": "findings",
+    "min_tier": "yellow",
+    "finding_pad": 1000,
+    "unmapped": true,
+    "clips": true,
+    "indels": true,
+    "linked": true,
+    "bait": true,
+    "locus": false,
+    "locus_flank": 5000,
+    "clip_min_len": 50,
+    "indel_min_len": 50,
+    "indel_merge_gap": 50,
+    "indel_piece_min": 10
+  },
+  "bait": {
+    "contigs": [
+      {
+        "name": "FAM29080-p1-1.1_scf7",
+        "length": 20262,
+        "reads": 35,
+        "bp": 214100,
+        "mapq0_reads": 23
+      }
+    ],
+    "reads": 35,
+    "bp": 214100,
+    "mapq0_reads": 23,
+    "mode": "any",
+    "supplementary_only_reads": 0,
+    "translated_reads": 0,
+    "remapped_reads": 7534,
+    "contract_ok": true,
+    "contract_reason": null,
+    "fallback": "tiny_input"
+  },
+  "notes": []
+}

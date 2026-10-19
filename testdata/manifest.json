@@ -1,0 +1,7 @@
+{
+  "name": "cramhook-testdata-v1",
+  "url": "https://github.com/Abrinca/cramhook/releases/download/testdata-v1/cramhook-testdata-v1.tar.gz",
+  "url_note": "release asset under tag testdata-v1; upload dist/cramhook-testdata-v1.tar.gz there before publishing",
+  "sha256": "969c24dcddf76cd97e7a4f2bb67ad6cd7c0b3f2d74b5be21b097c8820b9db630",
+  "size": 78922781
+}

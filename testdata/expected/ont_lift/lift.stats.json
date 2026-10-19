@@ -1,0 +1,62 @@
+{
+  "format_version": 1,
+  "contract_ok": true,
+  "contract_reason": null,
+  "preset": "lr:hq",
+  "records_in": {
+    "primary": 6090,
+    "supplementary": 887,
+    "secondary": 0,
+    "unmapped": 4
+  },
+  "translated_reads": 5493,
+  "translated_records": 6043,
+  "deferred_reads": 597,
+  "remapped_reads": 597,
+  "out_primary_records": 6090,
+  "deferred_by_reason": {
+    "clip": 12,
+    "competitor": 93,
+    "de": 97,
+    "mapq": 20,
+    "no_block": 51,
+    "split_clip": 5,
+    "split_competitor": 50,
+    "split_de": 33,
+    "split_diff_contigs": 7,
+    "split_mapq": 7,
+    "split_no_block": 181,
+    "split_not_origin": 24,
+    "split_not_two_records": 13,
+    "unmapped": 4
+  },
+  "deferred_by_class": {
+    "diff": 232,
+    "read": 365
+  },
+  "origin_crossing_translated": 550,
+  "origin_crossing_deferred": 320,
+  "qual_missing": 0,
+  "fallback": null,
+  "params": {
+    "min_mapq": 60,
+    "xl_tag": true,
+    "max_clip": 200,
+    "margin": 500,
+    "max_de": 0.03,
+    "t2_win": 10000,
+    "t2_step": 2000,
+    "t2_flank": 10000,
+    "t2_junction_flank": 50,
+    "clip_k": 17,
+    "clip_min_hits": 2,
+    "clip_min_len": 20,
+    "clip_flank": 0,
+    "clip_subtract_old": false,
+    "unsafe_no_clip_screen": false,
+    "max_s2_ratio": 0.5,
+    "max_minus_indel": 50,
+    "max_zdrop": 400,
+    "min_input_mb": 0.0
+  }
+}

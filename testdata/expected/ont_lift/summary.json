@@ -1,0 +1,35 @@
+{
+  "translated_reads": 5493,
+  "remapped_reads": 597,
+  "invariants_ok": true,
+  "mismatch_total": 0,
+  "primary_T": {
+    "n": 5493,
+    "n_identical": 5493,
+    "n_equivalent": 0,
+    "n_mismatch": 0
+  },
+  "primary_R": {
+    "n": 597,
+    "n_identical": 597,
+    "n_equivalent": 0,
+    "n_mismatch": 0
+  },
+  "supplementary": {
+    "n": 6090,
+    "equal": 6090,
+    "equivalent": 0,
+    "differ": 0
+  },
+  "depth_max_abs_diff": 0,
+  "depth_fraction_identical": 1.0,
+  "prophage_finding": {
+    "contig": "1",
+    "start": 543193,
+    "end": 563938,
+    "label": "finding_1",
+    "tier": "orange",
+    "likely": "misjoin",
+    "prophage_cover": 1.0
+  }
+}

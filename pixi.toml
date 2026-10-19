@@ -1,0 +1,97 @@
+[workspace]
+name = "cramhook"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+[dependencies]
+# bioinformatics
+minimap2 = ">=2.31"
+samtools = ">=1.24"
+htslib = ">=1.24"
+seqkit = "*"
+# python, for test-data generation and comparison scripts
+python = "3.14.*"
+pysam = ">=0.24"
+numpy = "*"
+# rust toolchain
+rust = ">=1.98"
+# C build deps, so rust-htslib (bundled htslib) can compile
+c-compiler = "*"
+make = "*"
+pkg-config = "*"
+clang = "*"
+libclang = "*"
+gxx_linux-64 = "*"
+zlib = "*"
+bzip2 = "*"
+liblzma-devel = "*"
+libdeflate = "*"
+libcurl = "*"
+openssl = "*"
+# utilities
+hyperfine = "*"
+git = "*"
+perl = "*"
+seqtk = ">=1.5,<2"
+
+# Comparison environments (isolated from the default env so their heavy
+# dependencies never touch the main toolchain). See scratch/cmp-tools/Report.md.
+[feature.testing-clair3.dependencies]
+clair3 = "*"
+samtools = "*"
+
+[feature.testing-sniffles2.dependencies]
+sniffles = ">=2.0,<3"
+samtools = "*"
+
+[feature.testing-myloasm.dependencies]
+myloasm = "*"
+samtools = "*"
+
+# Static musl release build (Plan-v4 step 4). Separate env so the default
+# toolchain stays untouched. conda-forge has no musl rust-std, so
+# scripts/build-static.sh installs the pinned upstream one into this env;
+# zig provides the musl C compiler and headers.
+[feature.static.dependencies]
+zig = "*"
+# must equal the default env rust exactly: the upstream musl rust-std is per-version
+rust = "==1.98.1"
+
+[feature.static.tasks]
+build-static = "bash scripts/build-static.sh"
+dist = { cmd = "bash scripts/dist-static.sh", depends-on = ["build-static"] }
+
+[environments]
+static = { features = ["static"] }
+testing-clair3 = { features = ["testing-clair3"], no-default-feature = true }
+testing-sniffles2 = { features = ["testing-sniffles2"], no-default-feature = true }
+testing-myloasm = { features = ["testing-myloasm"], no-default-feature = true }
+
+[activation.env]
+# Prevent htslib from fetching CRAM references from the EBI server.
+# References must always be given explicitly (--reference / -T).
+REF_PATH = ""
+
+# Enable rust-htslib to find C headers in conda sysroot (for bindgen).
+# The sysroot contains all necessary C standard library headers.
+# $CONDA_PREFIX is set automatically by pixi/conda activation.
+BINDGEN_EXTRA_CLANG_ARGS = "--sysroot=$CONDA_PREFIX/x86_64-conda-linux-gnu/sysroot"
+OPENSSL_NO_VENDOR = "1"
+
+[tasks]
+versions = """
+minimap2 --version && samtools --version | head -1 && seqkit version && \
+rustc --version && cargo --version && \
+python -c 'import pysam, numpy; print("pysam", pysam.__version__, "numpy", numpy.__version__)'
+"""
+smoke = "python scripts/smoke_test.py"
+sim = "python scripts/simulate.py --out data/synthetic"
+crams-synthetic = "python scripts/build_crams.py synthetic"
+crams-real = "python scripts/build_crams.py real"
+accept = "python scripts/acceptance.py"
+real-eval = "python scripts/real_eval.py"
+real-smoke = "python scripts/real_smoke.py"
+# public test data (testdata/README.md) and the local release check
+fetch-testdata = "python scripts/testdata/fetch_testdata.py"
+build-testdata = "python scripts/testdata/build_testdata.py"
+release-check = "python scripts/testdata/release_check.py"
