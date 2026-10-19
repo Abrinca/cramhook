@@ -6,6 +6,7 @@
 
 pub(crate) mod bamio;
 pub mod coords;
+pub mod cramcount;
 pub mod contract;
 pub mod diff;
 pub mod fasta;

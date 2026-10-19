@@ -25,7 +25,7 @@ Cases, provenance and thresholds: [testdata/README.md](../testdata/README.md).
 
 ## Tests
 
-`pixi run cargo test --release` runs 443 tests (3 ignored): 306 unit, 11 `diff_synthetic`,
+`pixi run cargo test --release` runs 452 tests (3 ignored): 315 unit, 11 `diff_synthetic`,
 25 `lift_synthetic`, 10 `lift_junction`, 1 `lift_roundtrip` (+1 ignored), 7 `translate_synthetic`
 (+1 ignored), 26 `qc_synthetic`, 17 `qc_circularity`, 4 `qc_linkage`, 31 `fish` and 5 `progress`.
 
@@ -39,7 +39,7 @@ Cases, provenance and thresholds: [testdata/README.md](../testdata/README.md).
 | `tests/lift_roundtrip.rs` | A→B→A and A→B→A→B over S1–S21 × hifi/ont, each step vs its full remap |
 | `tests/qc_synthetic.rs`, `qc_circularity.rs`, `qc_linkage.rs` | qc signals/outputs, circularity verdicts, cross-contig clip links, linkage pass |
 | `tests/fish.rs` | fish selection, outputs, `--bait`, `--bait-records` |
-| `tests/progress.rs` | `--progress` stream of `lift`, `qc`, `fish` (order, `frac`, error line), unchanged outputs, and a run with a closed stderr pipe; sets `CRAMHOOK_PROGRESS_INTERVAL_MS=0` to lift the update rate limit |
+| `tests/progress.rs` | `--progress` stream of `lift`, `qc`, `fish` (order, whole-percent `frac`, record counts vs `samtools view -c`, error line), unchanged outputs, and a run with a closed stderr pipe |
 
 ## Source layout
 
@@ -60,6 +60,7 @@ Cases, provenance and thresholds: [testdata/README.md](../testdata/README.md).
 | `src/contract.rs` | header and `@PG` contract |
 | `src/version.rs` | the shared output `format_version` (see [output-format.md](output-format.md)) |
 | `src/progress.rs` | the `--progress` stream: `Progress` handle, chunk and reference-position fractions |
+| `src/cramcount.rs` | record count of a CRAM (container headers) or indexed BAM (index stats), for the `--progress` totals |
 | `src/paf.rs`, `src/coords.rs`, `src/fasta.rs`, `src/main.rs` | PAF/`cs` parsing, typed coordinates, FASTA, CLI |
 | `scripts/` | test data, oracle construction, comparison, acceptance, evaluation |
 | `scripts/qc_truth.py` | qc truth set: raw → polished differences (SNP/INS/DEL/LINS/LDEL) |

@@ -771,19 +771,21 @@ pub(crate) fn run_linkage(
                             .fetch((tid as i32, start as i64, end as i64))
                             .with_context(|| format!("fetching {}:{start}-{end}", names[tid]))?;
                         let mut chunk = Chunk::new(tid, start);
+                        let mut n = 0u64;
                         while let Some(res) = reader.read(&mut rec) {
                             res.with_context(|| format!("reading {}", input.display()))?;
-                            if !keep(&rec) {
-                                continue;
-                            }
                             let rp = rec.pos();
                             if rp < start as i64 || rp >= end as i64 {
+                                continue;
+                            }
+                            n += 1;
+                            if !keep(&rec) {
                                 continue;
                             }
                             emit_record(&rec, &sites[tid], &name_to_tid, &mut chunk);
                         }
                         local.push(chunk);
-                        done_bp.add((end - start) as u64);
+                        done_bp.add((end - start) as u64, n);
                     }
                     Ok(local)
                 })

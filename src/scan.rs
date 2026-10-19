@@ -902,12 +902,14 @@ pub fn scan(input: &Path, ref_path: &Path, fasta: &Fasta, p: &ScanParams) -> Res
                                 reader
                                     .fetch((tid as i32, start as i64, end as i64))
                                     .with_context(|| format!("fetching {}:{start}-{end}", names[tid]))?;
+                                let mut n = 0u64;
                                 while let Some(res) = reader.read(&mut rec) {
                                     res.with_context(|| format!("reading {}", input.display()))?;
                                     let rp = rec.pos();
                                     if rp < start as i64 || rp >= end as i64 {
                                         continue;
                                     }
+                                    n += 1;
                                     if !classify(&rec, &mut w.counts) {
                                         continue;
                                     }
@@ -918,19 +920,22 @@ pub fn scan(input: &Path, ref_path: &Path, fasta: &Fasta, p: &ScanParams) -> Res
                                     let ga = g.get_or_insert_with(|| Acc::new(0, refs[tid].len()));
                                     ga.add(&acc);
                                 }
-                                done_bp.add((end - start) as u64);
+                                done_bp.add((end - start) as u64, n);
                             }
                             Task::Unplaced => {
                                 reader
                                     .fetch(bam::FetchDefinition::Unmapped)
                                     .context("fetching unplaced unmapped reads")?;
+                                let mut n = 0u64;
                                 while let Some(res) = reader.read(&mut rec) {
                                     res.with_context(|| format!("reading {}", input.display()))?;
                                     if rec.tid() >= 0 {
                                         continue;
                                     }
+                                    n += 1;
                                     classify(&rec, &mut w.counts);
                                 }
+                                done_bp.add(0, n);
                             }
                         }
                     }

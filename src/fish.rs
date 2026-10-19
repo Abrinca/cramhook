@@ -1388,24 +1388,29 @@ fn run_payload_pass(
                                     .with_context(|| {
                                         format!("fetching {}:{start}-{end}", names[tid])
                                     })?;
+                                let mut n = 0u64;
                                 while let Some(res) = reader.read(&mut rec) {
                                     res.with_context(|| format!("reading {}", input.display()))?;
                                     let rp = rec.pos();
                                     if rp < start as i64 || rp >= end as i64 {
                                         continue;
                                     }
+                                    n += 1;
                                     note_payload(&mut out, selected, &rec);
                                 }
-                                done_bp.add((end - start) as u64);
+                                done_bp.add((end - start) as u64, n);
                             }
                             Task::Unplaced => {
                                 reader
                                     .fetch(bam::FetchDefinition::Unmapped)
                                     .context("fetching coordinate-less records")?;
+                                let mut n = 0u64;
                                 while let Some(res) = reader.read(&mut rec) {
                                     res.with_context(|| format!("reading {}", input.display()))?;
+                                    n += 1;
                                     note_payload(&mut out, selected, &rec);
                                 }
+                                done_bp.add(0, n);
                             }
                         }
                     }
@@ -1557,7 +1562,8 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
 
     let next = AtomicUsize::new(0);
     let nthreads = params.threads.max(1).min(tasks.len());
-    progress.start("pass");
+    let records_total = progress.record_total(input);
+    progress.start_records("pass", records_total);
     let done_bp = crate::progress::ChunkFrac::new(progress, total);
     let workers: Vec<Result<(HashMap<String, ReadAgg>, InputCounts, HashSet<String>)>> =
         std::thread::scope(|sc| {
@@ -1584,12 +1590,14 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
                                         .with_context(|| {
                                             format!("fetching {}:{start}-{end}", names[tid])
                                         })?;
+                                    let mut n = 0u64;
                                     while let Some(res) = reader.read(&mut rec) {
                                         res.with_context(|| format!("reading {}", input.display()))?;
                                         let rp = rec.pos();
                                         if rp < start as i64 || rp >= end as i64 {
                                             continue;
                                         }
+                                        n += 1;
                                         process_record(
                                             &rec,
                                             tid,
@@ -1599,7 +1607,7 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
                                             &mut uncounted,
                                         )?;
                                     }
-                                    done_bp.add((end - start) as u64);
+                                    done_bp.add((end - start) as u64, n);
                                 }
                                 Task::Unplaced => {
                                     // `FetchDefinition::Unmapped` (`"*"`) returns
@@ -1610,8 +1618,10 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
                                     reader
                                         .fetch(bam::FetchDefinition::Unmapped)
                                         .context("fetching coordinate-less records")?;
+                                    let mut n = 0u64;
                                     while let Some(res) = reader.read(&mut rec) {
                                         res.with_context(|| format!("reading {}", input.display()))?;
+                                        n += 1;
                                         process_record(
                                             &rec,
                                             usize::MAX,
@@ -1621,6 +1631,7 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
                                             &mut uncounted,
                                         )?;
                                     }
+                                    done_bp.add(0, n);
                                 }
                             }
                         }
@@ -1677,7 +1688,7 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
         bait_summary = Some(summary);
         progress.end();
     }
-    progress.start("payload");
+    progress.start_records("payload", records_total);
 
     // Completeness: the region fetch and the `"*"` iterator together must see
     // every record the index counts. htslib index stats are cheap for a BAM and

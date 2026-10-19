@@ -10,9 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `--progress` on `lift`, `qc` and `fish`: machine-readable progress on stderr, one JSON object per
-  line (`plan`, per-phase `start`/`update`/`end` with `frac`, `done` or `error`; stream version 1,
-  see [docs/output-format.md](docs/output-format.md#progress-stream---progress)). Off by default;
-  without it the outputs are unchanged.
+  line (`plan`, per-phase `start`/`update`/`end`, `done` or `error`; stream version 1, see
+  [docs/output-format.md](docs/output-format.md#progress-stream---progress)). `update` lines carry
+  `frac`, one line per whole percent at most, and in record passes `records`, `records_total` and
+  `total_exact` (alignment records; exact totals from the CRAM container headers or the BAM index;
+  with an exact total, `frac` also follows the records read, so the unmapped tail reaches 100 %).
+  Off by default; without it the outputs are unchanged.
 
 ## [0.1.0] - 2026-10-19
 

@@ -90,7 +90,7 @@ fn run_qc_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &QcPar
         chunk_size: params.chunk_size,
         progress: progress.clone(),
     };
-    progress.start("scan");
+    progress.start_records("scan", progress.record_total(input));
     let scan = scan::scan(input, ref_path, &fasta, &sp)?;
     progress.end();
     let scan_s = t0.elapsed().as_secs_f64();
@@ -102,7 +102,7 @@ fn run_qc_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &QcPar
     // then drives every later wrap (depth bands, depth step, clusters and the
     // junction edge exclusion), so no input to this pass depends on the wrap
     // flag itself.
-    progress.start("circularity");
+    progress.start_records("circularity", None);
     let circ = circularity::run_circularity(input, ref_path, &scan, &fasta, params)?;
     progress.end();
     progress.start("call");
@@ -275,7 +275,7 @@ fn run_qc_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &QcPar
     // `depth_high` region can make a group red.
     let names: Vec<&str> = scan.contigs.iter().map(|c| c.name.as_str()).collect();
     progress.end();
-    progress.start("linkage");
+    progress.start_records("linkage", None);
     let link = link::run_linkage(
         input, ref_path, &scan, &ctxs, &refs, &mut cands, &regions, &names, params, lowcov_abs,
     )?;

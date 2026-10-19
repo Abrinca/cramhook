@@ -268,7 +268,7 @@ records the command line, shows the flag).
 ```
 {"progress":1,"cmd":"qc","event":"plan","phases":["scan","circularity","call","linkage","output"],"elapsed_s":0.00}
 {"progress":1,"cmd":"qc","phase":"scan","event":"start","elapsed_s":0.00}
-{"progress":1,"cmd":"qc","phase":"scan","event":"update","frac":0.420,"elapsed_s":1.31}
+{"progress":1,"cmd":"qc","phase":"scan","event":"update","frac":0.420,"records":36940,"records_total":87951,"total_exact":true,"elapsed_s":1.31}
 {"progress":1,"cmd":"qc","phase":"scan","event":"end","elapsed_s":2.05}
 …
 {"progress":1,"cmd":"qc","event":"done","elapsed_s":2.40}
@@ -281,21 +281,46 @@ records the command line, shows the flag).
 | `event` | `plan`, `start`, `update`, `end`, `done` or `error` |
 | `phases` | (`plan`) the phase names in the order they run |
 | `phase` | (`start`, `update`, `end`) the running phase |
-| `frac` | (`update`) fraction of the phase done, in [0, 1], 3 decimals, increasing within a phase |
+| `frac` | (`update`) fraction of the phase done, in [0, 1], truncated to 3 decimals (so `1.000` only when the phase's work is complete) |
+| `records` | (`update` of a record pass) alignment records read so far in this phase; never decreases |
+| `records_total` | (with `records`) the records the phase will read: exact when `total_exact` is true, else the estimate `round(records / frac)` |
+| `total_exact` | (with `records`) `true` when `records_total` is counted from the file, `false` for the estimate |
 | `message` | (`error`) the error message |
 | `elapsed_s` | seconds since the command started, 2 decimals, never decreasing |
 
 Order: the `plan` line comes first; then every phase of the plan, in plan order, as one `start`,
 zero or more `update` and one `end` line; the last line is `done`. On a failure the stream stops
 with an `error` line (possibly in the middle of a phase) and the command exits non-zero with its
-usual error message. `update` lines are rate limited (at most ~5 per second per phase, and only
-when `frac` grew by at least 0.01), so a short phase may have none.
+usual error message.
+
+**Whole-percent rule:** an `update` line is written only when the whole percent `floor(100 · frac)`
+exceeds the last one written for that phase, so a phase has at most 100 `update` lines (1 % …
+100 %) and a jump (41 → 43 %) gives one line with the current `frac`. The number of lines therefore
+depends only on the progress itself, not on timing. An update at 100 % is written when the work
+measured by `frac` completes before the phase's own wrap-up; it is not forced, so the last
+`update` of a phase may be below 100 % (the `end` line closes it).
+
+**Records, not reads:** `records` counts alignment records (primary, supplementary, secondary,
+unmapped), so a read with a supplementary alignment counts twice — the same unit as `samtools view
+-c`. The exact total of an input comes from the CRAM container headers (CRAM 3.x, read without
+decoding, in well under 1 ms) or the BAM index statistics, and is computed only with `--progress`;
+when it is not available (another CRAM version, no BAM index or an index without its optional
+statistics, an unreadable file) or a pass reads only part of the file, `records_total` is the
+estimate. Should a pass read more records than an exact total, the rest of that phase switches to
+the estimate (`total_exact:false`), so `records` never exceeds an exact `records_total`. Parallel chunked passes add the records of
+each finished chunk, so `records` advances in chunk steps.
+
+In a pass with an exact total (lift `translate_pass`, qc `scan`, fish `pass` and `payload`), `frac`
+is the larger of the position-based fraction (table below) and `records / records_total`, so the
+unplaced unmapped reads at the end of a sorted file still advance the bar; 100 % is reached exactly
+when the last record is read (`records == records_total`), and below that `frac` stays under 1.
+Phases with an estimated total keep the position-based `frac`.
 
 | command | phases | `frac` |
 |---|---|---|
-| `lift` | `diff`, `translate_pass`, `writer_drain`, `sort_index` (the `timings_s` names of the stats) | `translate_pass`: reference position of the input record (length of the earlier contigs + position) / total reference length, from the header; the unplaced unmapped tail does not advance it. `writer_drain`: remapped reads received from minimap2 / reads sent to the remap. `diff` (minimap2) and `sort_index` (samtools): none. With the tiny-input or contract fallback `diff` is skipped but still reported as a `start` + `end` pair |
-| `qc` | `scan`, `circularity`, `call`, `linkage`, `output` | `scan`, `circularity`, `linkage`: reference bp of the finished chunks / total. `call` (site calling, regions) and `output` (findings, writing the files): none |
-| `fish` | `pass`, `bait_lift` (only with `--bait`), `payload`, `output` | `pass` (selection), `payload` (FASTQ payload of the selected reads): reference bp of the finished chunks / total. `bait_lift` (the internal lift onto assembly + bait, reported as this one phase) and `output`: none |
+| `lift` | `diff`, `translate_pass`, `writer_drain`, `sort_index` (the `timings_s` names of the stats) | `translate_pass`: reference position of the input record (length of the earlier contigs + position) / total reference length, from the header, or records / total when larger. Records: every input record, total exact. `writer_drain`: remapped primary records received from minimap2 / reads sent to the remap (one primary record per deferred read, so `records` / `records_total` are the same unit as `frac`; total exact = `deferred_reads` of the stats). `diff` (minimap2) and `sort_index` (samtools): no `frac`. With the tiny-input or contract fallback `diff` is skipped but still reported as a `start` + `end` pair |
+| `qc` | `scan`, `circularity`, `call`, `linkage`, `output` | `scan`, `circularity`, `linkage`: reference bp of the finished chunks / total, with records. `scan` reads every record (total exact; records / total when larger); `circularity` and `linkage` read only the placed records of all / some contigs (total estimated). `call` (site calling, regions) and `output` (findings, writing the files): no `frac` |
+| `fish` | `pass`, `bait_lift` (only with `--bait`), `payload`, `output` | `pass` (selection), `payload` (FASTQ payload of the selected reads): reference bp of the finished chunks / total, or records / total when larger (every record, total exact). `bait_lift` (the internal lift onto assembly + bait, reported as this one phase) and `output`: no `frac` |
 
 Each line is written whole, under a lock, so it never interleaves with other stderr output of
 cramhook. stderr also carries the usual human-readable messages (warnings, the final summary): **lines

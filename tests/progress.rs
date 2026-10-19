@@ -2,7 +2,8 @@
 //! well formed (plan first, every phase started and ended in plan order,
 //! monotonic `frac` in [0, 1], `done` last) and the outputs do not change.
 //!
-//! Uses the synthetic S1 fixtures (`pixi run sim && pixi run crams-synthetic`).
+//! Uses the synthetic S5c fixtures (`pixi run sim && pixi run crams-synthetic`):
+//! 1,663 records, 117 of them unplaced unmapped at the end of the file.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -14,8 +15,8 @@ fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-fn s1() -> PathBuf {
-    let d = root().join("data/synthetic/S1");
+fn case() -> PathBuf {
+    let d = root().join("data/synthetic/S5c");
     assert!(
         d.join("hifi/old.cram").exists(),
         "data/synthetic is missing: run `pixi run sim` and `pixi run crams-synthetic`"
@@ -30,12 +31,10 @@ fn workdir(name: &str) -> PathBuf {
     d
 }
 
-/// Run the CLI; returns stderr. Updates are not rate limited so the small
-/// fixtures produce some.
+/// Run the CLI; returns stderr.
 fn cramhook(args: &[&str]) -> String {
     let o = Command::new(env!("CARGO_BIN_EXE_cramhook"))
         .args(args)
-        .env("CRAMHOOK_PROGRESS_INTERVAL_MS", "0")
         .output()
         .expect("running cramhook");
     let err = String::from_utf8_lossy(&o.stderr).to_string();
@@ -47,8 +46,9 @@ fn p(path: &Path) -> &str {
     path.to_str().unwrap()
 }
 
-/// Check the progress lines of `stderr`; returns (phases, number of updates).
-fn check_stream(stderr: &str, cmd: &str) -> (Vec<String>, usize) {
+/// Check the progress lines of `stderr`; returns (phases, number of updates,
+/// the update lines).
+fn check_stream(stderr: &str, cmd: &str) -> (Vec<String>, usize, Vec<Value>) {
     let ev: Vec<Value> = stderr
         .lines()
         .filter(|l| l.starts_with('{'))
@@ -69,19 +69,45 @@ fn check_stream(stderr: &str, cmd: &str) -> (Vec<String>, usize) {
     assert!(!plan.is_empty());
     let mut i = 1;
     let mut updates = 0;
+    let mut lines = Vec::new();
     for ph in &plan {
         assert_eq!(ev[i]["event"], "start", "expected start of {ph}: {}", ev[i]);
         assert_eq!(ev[i]["phase"], ph.as_str());
         i += 1;
-        let mut last = 0.0;
+        let mut last_pct = 0;
+        let mut last_records = 0;
+        let mut in_phase = 0;
         while ev[i]["event"] == "update" {
-            assert_eq!(ev[i]["phase"], ph.as_str(), "{}", ev[i]);
-            let f = ev[i]["frac"].as_f64().unwrap();
-            assert!((0.0..=1.0).contains(&f), "frac out of range: {}", ev[i]);
-            assert!(f >= last, "frac not monotonic: {}", ev[i]);
-            last = f;
+            let v = &ev[i];
+            assert_eq!(v["phase"], ph.as_str(), "{v}");
+            let f = v["frac"].as_f64().unwrap();
+            assert!((0.0..=1.0).contains(&f), "frac out of range: {v}");
+            // One line per whole percent at most.
+            let pct = (f * 100.0 + 1e-9).floor() as u64;
+            assert!(pct > last_pct, "whole percent not increasing: {v}");
+            last_pct = pct;
+            if let Some(r) = v.get("records") {
+                let r = r.as_u64().unwrap();
+                let n = v["records_total"].as_u64().unwrap();
+                let exact = v["total_exact"].as_bool().unwrap();
+                assert!(r >= last_records, "records decreased: {v}");
+                assert!(!exact || r <= n, "records above the exact total: {v}");
+                last_records = r;
+            }
+            in_phase += 1;
             updates += 1;
+            lines.push(v.clone());
             i += 1;
+        }
+        assert!(in_phase <= 100, "{ph}: {in_phase} updates");
+        // An exact-total record pass counts the records it reads, so its last
+        // update reaches the end even across the unplaced unmapped tail
+        // (`writer_drain` is sampled by polling and may stop short).
+        if ph != "writer_drain"
+            && let Some(last) = lines.last().filter(|v| v["phase"] == ph.as_str() && v["total_exact"] == true)
+        {
+            assert!(last["frac"].as_f64().unwrap() >= 0.99, "{ph} stopped short: {last}");
+            assert_eq!(last["records"], last["records_total"], "{ph}: {last}");
         }
         assert_eq!(ev[i]["event"], "end", "expected end of {ph}: {}", ev[i]);
         assert_eq!(ev[i]["phase"], ph.as_str());
@@ -90,7 +116,14 @@ fn check_stream(stderr: &str, cmd: &str) -> (Vec<String>, usize) {
     }
     assert_eq!(ev[i]["event"], "done", "{}", ev[i]);
     assert_eq!(i, ev.len() - 1, "lines after done");
-    (plan, updates)
+    (plan, updates, lines)
+}
+
+/// `samtools view -c` (samtools is on PATH in the pixi environment).
+fn samtools_count(p: &Path) -> u64 {
+    let o = Command::new("samtools").args(["view", "-c"]).arg(p).output().expect("samtools");
+    assert!(o.status.success());
+    String::from_utf8_lossy(&o.stdout).trim().parse().unwrap()
 }
 
 fn read_text(path: PathBuf) -> String {
@@ -116,7 +149,7 @@ fn with_prefix(prefix: &Path, suffix: &str) -> PathBuf {
 
 #[test]
 fn progress_qc() {
-    let s = s1();
+    let s = case();
     let d = workdir("qc");
     let cram = s.join("hifi/old.cram");
     let fa = s.join("old.fa");
@@ -126,9 +159,15 @@ fn progress_qc() {
     let err_off = cramhook(&[&base[..], &["--out-prefix", p(&a)]].concat());
     assert!(!err_off.lines().any(|l| l.starts_with('{')), "progress lines without --progress");
     let err = cramhook(&[&base[..], &["--out-prefix", p(&b), "--progress"]].concat());
-    let (plan, updates) = check_stream(&err, "qc");
+    let (plan, updates, lines) = check_stream(&err, "qc");
     assert_eq!(plan, ["scan", "circularity", "call", "linkage", "output"]);
     assert!(updates > 0, "no updates:\n{err}");
+    // The scan total is exact (CRAM container headers) and the scan reads
+    // every record.
+    let scan: Vec<&Value> = lines.iter().filter(|v| v["phase"] == "scan").collect();
+    assert!(!scan.is_empty());
+    assert!(scan.iter().all(|v| v["total_exact"] == true && v["records_total"] == samtools_count(&cram)));
+    assert_eq!(scan.last().unwrap()["records"], samtools_count(&cram));
     for suf in [".vcf", ".bed", ".findings.bed", ".depth.bedgraph", ".haplotypes.tsv"] {
         assert_eq!(read_text(with_prefix(&a, suf)), read_text(with_prefix(&b, suf)), "{suf} differs");
     }
@@ -137,7 +176,7 @@ fn progress_qc() {
 
 #[test]
 fn progress_fish_with_bait() {
-    let s = s1();
+    let s = case();
     let d = workdir("fish");
     let cram = s.join("hifi/old.cram");
     let fa = s.join("old.fa");
@@ -155,7 +194,16 @@ fn progress_fish_with_bait() {
     let err_off = cramhook(&[&base[..], &["--out-prefix", p(&a)]].concat());
     assert!(!err_off.lines().any(|l| l.starts_with('{')), "progress lines without --progress");
     let err = cramhook(&[&base[..], &["--out-prefix", p(&b), "--progress"]].concat());
-    let (plan, _) = check_stream(&err, "fish");
+    let (plan, _, lines) = check_stream(&err, "fish");
+    let n = samtools_count(&cram);
+    for ph in ["pass", "payload"] {
+        let last = lines.iter().rfind(|v| v["phase"] == ph).unwrap_or_else(|| panic!("no {ph} updates"));
+        assert_eq!(last["records"], n, "{ph}: {last}");
+    }
+    for v in lines.iter().filter(|v| v["phase"] == "pass" || v["phase"] == "payload") {
+        assert_eq!(v["records_total"], n, "{v}");
+        assert_eq!(v["total_exact"], true, "{v}");
+    }
     assert_eq!(plan, ["pass", "bait_lift", "payload", "output"]);
     // The internal bait lift reports as the `bait_lift` phase, not as lift lines.
     assert!(!err.contains("\"cmd\":\"lift\""));
@@ -184,7 +232,7 @@ fn records(cram: &Path, fa: &Path) -> Vec<bam::Record> {
 
 #[test]
 fn progress_lift() {
-    let s = s1();
+    let s = case();
     let d = workdir("lift");
     let cram = s.join("hifi/old.cram");
     let old_fa = s.join("old.fa");
@@ -200,16 +248,27 @@ fn progress_lift() {
     let err_off = cramhook(&[&base[..], &["--out", p(&a), "--stats", p(&sa)]].concat());
     assert!(!err_off.lines().any(|l| l.starts_with('{')), "progress lines without --progress");
     let err = cramhook(&[&base[..], &["--out", p(&b), "--stats", p(&sb), "--progress"]].concat());
-    let (plan, updates) = check_stream(&err, "lift");
+    let (plan, updates, lines) = check_stream(&err, "lift");
     assert_eq!(plan, ["diff", "translate_pass", "writer_drain", "sort_index"]);
     assert!(updates > 0, "no updates:\n{err}");
+    let pass: Vec<&Value> = lines.iter().filter(|v| v["phase"] == "translate_pass").collect();
+    assert!(!pass.is_empty(), "no translate_pass updates:\n{err}");
+    let n = samtools_count(&cram);
+    assert!(pass.iter().all(|v| v["records_total"] == n && v["total_exact"] == true), "{pass:?}");
+    assert_eq!(pass.last().unwrap()["frac"].as_f64(), Some(1.0), "{pass:?}");
+    assert_eq!(pass.last().unwrap()["records"], n);
+    let stats = json_stable(sb.clone());
+    for v in lines.iter().filter(|v| v["phase"] == "writer_drain") {
+        assert_eq!(v["records_total"], stats["deferred_reads"], "{v}");
+        assert_eq!(v["total_exact"], true);
+    }
     assert_eq!(json_stable(sa), json_stable(sb));
     assert_eq!(records(&a, &new_fa), records(&b, &new_fa), "lifted records differ");
 }
 
 #[test]
 fn progress_error_line() {
-    let s = s1();
+    let s = case();
     let d = workdir("error");
     let o = Command::new(env!("CARGO_BIN_EXE_cramhook"))
         .args(["qc", "--in", p(&d.join("missing.cram")), "--ref", p(&s.join("old.fa"))])
@@ -242,7 +301,7 @@ fn cramhook_closed_stderr(args: &[&str]) -> std::process::ExitStatus {
 
 #[test]
 fn progress_closed_stderr_does_not_fail() {
-    let s = s1();
+    let s = case();
     let d = workdir("closed_stderr");
     let cram = s.join("hifi/old.cram");
     let old_fa = s.join("old.fa");

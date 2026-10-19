@@ -469,17 +469,22 @@ pub(crate) fn run_circularity(
                         reader
                             .fetch((tid as i32, start as i64, end as i64))
                             .with_context(|| format!("fetching {}:{start}-{end}", names[tid]))?;
+                        let mut n = 0u64;
                         while let Some(res) = reader.read(&mut rec) {
                             res.with_context(|| format!("reading {}", input.display()))?;
                             let rp = rec.pos();
-                            if !keep(&rec) || rec.tid() != tid as i32 || rp < start as i64 || rp >= end as i64 {
+                            if rec.tid() != tid as i32 || rp < start as i64 || rp >= end as i64 {
+                                continue;
+                            }
+                            n += 1;
+                            if !keep(&rec) {
                                 continue;
                             }
                             if let Some(a) = align_of(&rec) {
                                 local.push((tid, rec.qname().to_vec(), a));
                             }
                         }
-                        done_bp.add((end - start) as u64);
+                        done_bp.add((end - start) as u64, n);
                     }
                     Ok(local)
                 })

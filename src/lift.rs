@@ -594,6 +594,8 @@ struct Common<'a> {
     /// Resolved divergence threshold (`--max-de` or the preset default).
     max_de: f64,
     progress: &'a Progress,
+    /// Records in the input (`--progress` only; `None` when unknown).
+    records_total: Option<u64>,
 }
 
 impl Common<'_> {
@@ -694,7 +696,7 @@ fn run_session(
     };
 
     // Run the pass.
-    common.progress.start("translate_pass");
+    common.progress.start_records("translate_pass", common.records_total);
     let t_pass = Instant::now();
     let pass = match &mode {
         RunMode::Normal { preset, diff } => {
@@ -755,12 +757,14 @@ fn run_session(
 
     // Drain + close. With `--progress`, poll the reader thread so the drain
     // reports remapped / deferred reads.
-    common.progress.start("writer_drain");
+    // `records` are the primary remapped records, one per deferred read.
+    common.progress.start_records("writer_drain", Some(stats.deferred_reads));
     let t_drain = Instant::now();
     if let (Some(n), Some(rx)) = (&remapped_count, &drained) {
         let deferred = stats.deferred_reads.max(1) as f64;
         while let Err(mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(Duration::from_millis(50)) {
-            common.progress.update(n.load(Ordering::Relaxed) as f64 / deferred);
+            let r = n.load(Ordering::Relaxed);
+            common.progress.update_records(r as f64 / deferred, r);
         }
     }
     let remap = match thread.join() {
@@ -1178,6 +1182,7 @@ fn lift_inner(
             .is_some_and(|e| e.eq_ignore_ascii_case("cram")),
         max_de: tcfg.max_de.unwrap_or_else(|| de_threshold(effective_preset)),
         progress,
+        records_total: progress.record_total(in_cram),
     };
 
     let empty_diff = Diff::default();
