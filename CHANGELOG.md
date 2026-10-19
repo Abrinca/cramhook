@@ -36,5 +36,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Output format
 
-- Output format version 2 (format_version in JSON, ##format_version in VCF): version 2 adds the
-  qc `P.gc.bedgraph` file and the qc JSON `gc_window` key. Version 1 was the initial format.
+- Output format version 1 (`format_version` in JSON, `##format_version` in VCF). This release adds
+  the qc `P.gc.bedgraph` file and the qc JSON `gc_window` key.

@@ -7,8 +7,8 @@ by igv.js (and any genome browser); the JSON files are meant for programs.
 
 All outputs share one format version number, currently **2**:
 
-- every JSON file carries `"format_version": 2` as its first key;
-- the qc VCF carries a `##format_version=2` header line;
+- every JSON file carries `"format_version": 1` as its first key;
+- the qc VCF carries a `##format_version=1` header line;
 - BED, bedGraph and TSV files share the same version number but carry no version line of their own
   (BED and TSV files start with one `#`-prefixed or plain column-name line; the bedGraph has none).
 
@@ -59,7 +59,7 @@ Written with `--stats`: counts, deferrals by reason, parameters, per-phase timin
 
 | key | contents |
 |---|---|
-| `format_version` | 2 |
+| `format_version` | 1 |
 | `contract_ok`, `contract_reason` | input-contract result; the reason is `null` when it passed |
 | `preset` | `map-hifi` or `lr:hq` |
 | `records_in` | `primary`, `supplementary`, `secondary`, `unmapped` records read |
@@ -169,7 +169,7 @@ All top-level keys, in order:
 
 | key | contents |
 |---|---|
-| `format_version` | 2 |
+| `format_version` | 1 |
 | `analysis_type` | `cramhook qc` |
 | `version` | tool version |
 | `preset` | `map-hifi` or `lr:hq` |
@@ -248,7 +248,7 @@ thresholds used, and timing. Top-level keys:
 
 | key | contents |
 |---|---|
-| `format_version` | 2 |
+| `format_version` | 1 |
 | `reads` | `reads`, `bp` (distinct selected reads, summed length) and `by_reason` (per reason: `reads`, `bp`; a read can count under more than one) |
 | `records` | input record counts: `total`, `primary`, `supplementary`, `secondary`, `duplicate`, `qcfail`, `unmapped`, `mapped_bp`, `unmapped_bp` |
 | `params` | `scope`, `min_tier`, `finding_pad`, `unmapped`, `clips`, `indels`, `linked`, `bait`, `locus`, `locus_flank`, `clip_min_len`, `indel_min_len`, `indel_merge_gap`, `indel_piece_min` |

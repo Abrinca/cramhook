@@ -260,11 +260,11 @@ fn qc_planted_events_and_thread_identity() {
 
     // JSON.
     let json_text = std::fs::read_to_string(p1.with_extension("json")).unwrap();
-    assert!(json_text.starts_with("{\n  \"format_version\": 2,"), "format_version is not the first JSON key:\n{json_text}");
+    assert!(json_text.starts_with("{\n  \"format_version\": 1,"), "format_version is not the first JSON key:\n{json_text}");
     let j: serde_json::Value = serde_json::from_str(&json_text).unwrap();
-    assert_eq!(j["format_version"], 2);
+    assert_eq!(j["format_version"], 1);
     let vcf_text = std::fs::read_to_string(p1.with_extension("vcf")).unwrap();
-    assert!(vcf_text.starts_with("##fileformat=VCFv4.2\n##format_version=2\n"), "VCF format_version header missing:\n{vcf_text}");
+    assert!(vcf_text.starts_with("##fileformat=VCFv4.2\n##format_version=1\n"), "VCF format_version header missing:\n{vcf_text}");
     // Alerts: VCF site calls by type plus tiered BED regions.
     let bt = &j["alerts"]["by_type"];
     assert_eq!(bt["SNP"]["red"], 1);

@@ -1,5 +1,5 @@
 ##fileformat=VCFv4.2
-##format_version=2
+##format_version=1
 ##source=cramhook qc 0.1.0
 ##reference=cramhook-testdata-v1/hifi/asm.fa
 ##cramhook_preset=map-hifi

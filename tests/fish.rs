@@ -274,9 +274,9 @@ fn fish_selects_each_category_and_thread_identity() {
 
     // JSON reasons and counts.
     let j = json(&p1);
-    assert_eq!(j["format_version"], 2, "{j}");
+    assert_eq!(j["format_version"], 1, "{j}");
     let raw = std::fs::read_to_string(p1.with_extension("fish.json")).unwrap();
-    assert!(raw.starts_with("{\n  \"format_version\": 2,"), "format_version is not the first JSON key:\n{raw}");
+    assert!(raw.starts_with("{\n  \"format_version\": 1,"), "format_version is not the first JSON key:\n{raw}");
     assert_eq!(j["reads"]["by_reason"]["clip"]["reads"], 40, "{j}");
     assert_eq!(j["reads"]["by_reason"]["large_ins"]["reads"], 15, "{j}");
     assert_eq!(j["reads"]["by_reason"]["large_del"]["reads"], 15, "{j}");
