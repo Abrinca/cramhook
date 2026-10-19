@@ -91,6 +91,10 @@ struct QcArgs {
     /// Also write `<prefix>.candidates.tsv` (every pre-filtered candidate with all statistics).
     #[arg(long)]
     candidates: bool,
+    /// Annotate CRISPR arrays detected in the reference (pilercr-rs; annotation
+    /// only: tiers, findings and alerts are unchanged).
+    #[arg(long)]
+    crispr: bool,
     /// Positions below this depth are not assessable.
     #[arg(long, default_value_t = 5)]
     min_depth: u32,
@@ -823,6 +827,7 @@ fn run_qc_cmd(a: QcArgs) -> Result<()> {
         threads: a.threads,
         linear: a.linear,
         candidates: a.candidates,
+        crispr: a.crispr,
         min_depth: a.min_depth,
         max_mq0_frac: a.max_mq0_frac,
         min_alt: a.min_alt,

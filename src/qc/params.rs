@@ -20,6 +20,9 @@ pub struct QcParams {
     pub linear: Vec<String>,
     /// Write `P.candidates.tsv`.
     pub candidates: bool,
+    /// Annotate CRISPR arrays detected in the reference (annotation only:
+    /// never changes a TIER, never a finding member, never an alert).
+    pub crispr: bool,
     /// Not assessable below this depth.
     pub min_depth: u32,
     /// Not assessable above this MAPQ0 share.
@@ -223,6 +226,7 @@ impl Default for QcParams {
             threads: std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8),
             linear: Vec::new(),
             candidates: false,
+            crispr: false,
             min_depth: 5,
             max_mq0_frac: 0.5,
             min_alt: 2,

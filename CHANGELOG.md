@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cramhook qc`: `q.gc.bedgraph`, a GC-fraction track in fixed `--gc-window` windows (default
   100 bp; `0` disables the file), computed from the `--ref` FASTA qc already loads. Non-ACGT
   bases are excluded from both counts; the JSON gains `gc_window`.
+- `cramhook qc --crispr`: annotate CRISPR arrays detected in the reference with `pilercr-rs`
+  (MIT, a Rust port of PILER-CR): untiered `crispr` BED rows and INFO `CRISPR` flags on sites
+  inside an array; the top-level `crispr` JSON block (`arrays`, `bp`) is written either way
+  (zeros without the flag). Annotation only: arrays never change a TIER, are not finding members
+  and are not counted in `alerts`.
 - `cramhook fish`: extract reads behind the calls (clips, large indels, unmapped, linked, locus),
   including `--bait` (lift against assembly + bait sequence) and `--bait-records any|primary`.
 - Debug commands `cramhook diff` (identity blocks, taint, novel regions, junctions) and
@@ -37,4 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Output format
 
 - Output format version 1 (`format_version` in JSON, `##format_version` in VCF). This release adds
-  the qc `P.gc.bedgraph` file and the qc JSON `gc_window` key.
+  the qc `P.gc.bedgraph` file and the qc JSON `gc_window` key, plus the `crispr` BED label and VCF
+  INFO `CRISPR` flag with `--crispr`. The qc JSON `crispr` block and `params.crispr` key are not
+  conditional on the flag: they are always present (zeros / `false` without `--crispr`), so the
+  schema is stable.

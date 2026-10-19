@@ -25,9 +25,10 @@ Cases, provenance and thresholds: [testdata/README.md](../testdata/README.md).
 
 ## Tests
 
-`pixi run cargo test --release` runs 462 tests (3 ignored): 321 unit, 11 `diff_synthetic`,
-25 `lift_synthetic`, 10 `lift_junction`, 1 `lift_roundtrip` (+1 ignored), 7 `translate_synthetic`
-(+1 ignored), 27 `qc_synthetic`, 17 `qc_circularity`, 4 `qc_linkage`, 31 `fish` and 5 `progress`.
+`pixi run cargo test --release` runs 474 tests (3 ignored): 331 unit, 11 `diff_synthetic`,
+25 `lift_synthetic`, 10 `lift_junction`, 2 `lift_roundtrip` (1 ignored), 8 `translate_synthetic`
+(1 ignored), 27 `qc_synthetic`, 17 `qc_circularity`, 4 `qc_linkage`, 3 `qc_crispr`, 31 `fish` and
+5 `progress`.
 
 | Test target | Covers |
 |---|---|
@@ -37,7 +38,7 @@ Cases, provenance and thresholds: [testdata/README.md](../testdata/README.md).
 | `tests/lift_synthetic.rs` | `lift` end-to-end, contract fallbacks, chained lifted input |
 | `tests/lift_junction.rs` | junction-taint fixtures (deletion/join, origin competitor, nested junction, seam) |
 | `tests/lift_roundtrip.rs` | A→B→A and A→B→A→B over S1–S21 × hifi/ont, each step vs its full remap |
-| `tests/qc_synthetic.rs`, `qc_circularity.rs`, `qc_linkage.rs` | qc signals/outputs, circularity verdicts, cross-contig clip links, linkage pass |
+| `tests/qc_synthetic.rs`, `qc_circularity.rs`, `qc_linkage.rs`, `qc_crispr.rs` | qc signals/outputs, circularity verdicts, cross-contig clip links, linkage pass, CRISPR annotation |
 | `tests/fish.rs` | fish selection, outputs, `--bait`, `--bait-records` |
 | `tests/progress.rs` | `--progress` stream of `lift`, `qc`, `fish` (order, whole-percent `frac`, record counts vs `samtools view -c`, error line), unchanged outputs, and a run with a closed stderr pipe |
 
@@ -55,7 +56,7 @@ Cases, provenance and thresholds: [testdata/README.md](../testdata/README.md).
 | `src/qc/mod.rs` | `run_qc`: the qc pass that ties the modules together |
 | `src/qc/{params,tiers,sites,sig,alerts,likely,findings,calling}.rs` | thresholds, tier rule, site types, significance, alert counts, `likely` table, findings, site calling and candidate collection |
 | `src/qc/regions/{cluster,clip,junction,indel,depth,step,xlink}.rs` | region signals: SNP clusters, clip hotspots + cross-contig links, split junctions, large indels, depth bands and steps, xlinks |
-| `src/qc/{circularity,junctions,link,output,stats,test_util}.rs` | circularity verdicts, split-read/cross-contig event extraction, linkage pass, VCF/BED/JSON/BEDGRAPH writers, statistics, test helpers |
+| `src/qc/{circularity,junctions,link,crispr,output,stats,test_util}.rs` | circularity verdicts, split-read/cross-contig event extraction, linkage pass, CRISPR annotation (`--crispr`), VCF/BED/JSON/BEDGRAPH writers, statistics, test helpers |
 | `src/fish.rs` | fish selection, reasons table, `--bait` lift |
 | `src/contract.rs` | header and `@PG` contract |
 | `src/version.rs` | the shared output `format_version` (see [output-format.md](output-format.md)) |

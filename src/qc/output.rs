@@ -10,8 +10,8 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 
 use super::{
-    Alerts, Candidate, ClassFit, ContigCtx, Finding, Findings, NA_REASONS, QcParams, Region, Tier, VarType,
-    Xlink, collect_alerts, collect_findings_counts, finding_rows, out_path,
+    Alerts, Candidate, ClassFit, ContigCtx, CrisprArray, Finding, Findings, NA_REASONS, QcParams, Region,
+    Tier, VarType, Xlink, collect_alerts, collect_findings_counts, finding_rows, out_path,
 };
 use super::circularity::{CircCounts, CircResult, ContigCircularity};
 use super::link::{HapRow, LinkageStats};
@@ -47,6 +47,8 @@ pub(crate) struct Outputs<'a> {
     pub depth_step_origin_dropped: &'a [u64],
     /// Cross-contig clip links (`clip_to=`/`link=` notes, `P.json` `xlinks`).
     pub xlinks: &'a [Xlink],
+    /// Detected CRISPR arrays (`--crispr`; annotation only).
+    pub crispr: &'a [CrisprArray],
 }
 
 /// Counts per type for one tier.
@@ -156,6 +158,15 @@ pub struct ReadsSummary {
     pub records: RecordsSummary,
 }
 
+/// `P.json` `crispr` block: arrays detected in the reference and the bases
+/// they cover. Always present (zeros without `--crispr`) so the schema is
+/// stable.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct CrisprSummary {
+    pub arrays: u64,
+    pub bp: u64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct AssemblySummary {
     pub length_bp: u64,
@@ -189,6 +200,8 @@ pub struct Summary {
     pub gc_window: u32,
     pub reads: ReadsSummary,
     pub assembly: AssemblySummary,
+    /// CRISPR arrays found in the reference (`--crispr`; annotation only).
+    pub crispr: CrisprSummary,
     /// Tiered calls: VCF sites + tiered BED regions, per tier.
     pub alerts: Alerts,
     /// Findings: tiered calls grouped into one problem location each.
@@ -368,6 +381,9 @@ impl Outputs<'_> {
             writeln!(w, "##INFO=<ID=GROUPED,Number=1,Type=Integer,Description=\"Exact insertion alleles merged into this candidate (only when > 1)\">")?;
         }
         writeln!(w, "##INFO=<ID=ORIGIN,Number=0,Type=Flag,Description=\"Indel before the first reference base (right-padded: anchor base is the last REF/ALT base)\">")?;
+        if self.params.crispr {
+            writeln!(w, "##INFO=<ID=CRISPR,Number=0,Type=Flag,Description=\"Inside a CRISPR array detected by pilercr-rs (annotation only; TIER unchanged)\">")?;
+        }
         writeln!(w, "##INFO=<ID=REASON,Number=1,Type=String,Description=\"Tier rule that fired\">")?;
         writeln!(w, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype (haploid)\">")?;
         writeln!(w, "##FORMAT=<ID=AD,Number=R,Type=Integer,Description=\"Ref and alt read counts\">")?;
@@ -425,6 +441,9 @@ impl Outputs<'_> {
             if c.unlinked {
                 info.push_str(";UNLINKED");
             }
+            if self.crispr.iter().any(|a| a.contains(c.tid, c.pos0)) {
+                info.push_str(";CRISPR");
+            }
             info.push_str(";REASON=");
             info.push_str(c.tier.reason);
             writeln!(
@@ -464,6 +483,13 @@ impl Outputs<'_> {
             if !tos.is_empty() {
                 extra.push_str(&format!(";clip_to={};clip_to_reads={}", tos.join("|"), reads.join("|")));
             }
+            // Annotation rows carry no depth ratios; write `.` rather than the
+            // `NA` a missing signal value gets.
+            let (depth_ratio, hiq_share) = if r.label == "crispr" {
+                (".".to_string(), ".".to_string())
+            } else {
+                (fmt_opt(r.depth_ratio), fmt_opt(r.hiq_share))
+            };
             writeln!(
                 w,
                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
@@ -474,8 +500,8 @@ impl Outputs<'_> {
                 r.score,
                 r.tier,
                 r.reason,
-                fmt_opt(r.depth_ratio),
-                fmt_opt(r.hiq_share),
+                depth_ratio,
+                hiq_share,
                 if extra.is_empty() { "." } else { &extra }
             )?;
         }
@@ -888,6 +914,10 @@ impl Outputs<'_> {
             .filter(|c| matches!(c.tier.tier, Tier::Red | Tier::Orange) && c.lowcov & 1 == 0)
             .count() as u64;
         let qc_qv = qc_qv(site_ro, confident);
+        let crispr = CrisprSummary {
+            arrays: self.crispr.len() as u64,
+            bp: self.crispr.iter().map(|a| a.end - a.start).sum(),
+        };
         let mut inputs = BTreeMap::new();
         inputs.insert("in".to_string(), self.input.display().to_string());
         inputs.insert("ref".to_string(), self.ref_path.display().to_string());
@@ -909,6 +939,7 @@ impl Outputs<'_> {
                 low_coverage_fraction: if genome == 0 { 0.0 } else { low_total as f64 / genome as f64 },
                 confident_bp: confident,
             },
+            crispr,
             alerts,
             findings,
             xlinks: self.xlinks.len() as u64,

@@ -145,8 +145,9 @@ fn base_groups(
     }
     let mut rms: Vec<MemberIv> = Vec::new();
     for r in regions {
-        // `depth_segment` (the paired interval) is output only: never a member.
-        if r.label == "depth_segment" {
+        // `depth_segment` (the paired interval) and the untiered `crispr`
+        // annotation are output only: never a member.
+        if matches!(r.label, "depth_segment" | "crispr") {
             continue;
         }
         let tier = match r.tier {

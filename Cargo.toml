@@ -11,6 +11,8 @@ anyhow = "=1.0.104"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 rust-htslib = { version = "=1.0.2", default-features = false, features = ["bzip2", "lzma", "libdeflate"] }
+# MIT; Rust port of PILER-CR (`qc --crispr` array detection).
+pilercr-rs = "0.1"
 
 # musl's allocator is slow under many threads; only the static musl release build uses mimalloc.
 [target.'cfg(target_env = "musl")'.dependencies]

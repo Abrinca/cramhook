@@ -92,8 +92,9 @@ VCFv4.2, one sample column (`sample`), tiered site calls only. Header lines: `##
 `##format_version`, `##source=cramhook qc <version>`, `##reference`, `##cramhook_preset`,
 `##contig` per contig. INFO `TIER` (`RED`/`ORANGE`/`YELLOW`/`GRAY`); FILTER `PASS`/`LowCov`; INFO
 `TYPE`, `AF`, `DP`, `AD`/`ADF`/`ADR`/`DP4`, `HP`, `STR`, `CLASS`, `PV`, `QV`, `MQ0F`, `REASON`,
-plus the flags `MIXED`, `STRAND`, `ORIGIN`, `LOWCOV`, `LINKED`/`UNLINKED`, `GROUPED` and `HPGRAY`
-(gray); FORMAT `GT:AD:DP`. QUAL is the phred-scaled p-value (capped at 999).
+plus the flags `MIXED`, `STRAND`, `ORIGIN`, `LOWCOV`, `LINKED`/`UNLINKED`, `GROUPED`, `HPGRAY`
+(gray) and `CRISPR` (with `--crispr`); FORMAT `GT:AD:DP`. QUAL is the phred-scaled p-value (capped
+at 999).
 
 | field | Number, Type | meaning |
 |---|---|---|
@@ -119,6 +120,7 @@ plus the flags `MIXED`, `STRAND`, `ORIGIN`, `LOWCOV`, `LINKED`/`UNLINKED`, `GROU
 | INFO `UNLINKED` | 0, Flag | tested against ≥ 2 partner sites within the linkage window and linked to none |
 | INFO `GROUPED` | 1, Integer | exact insertion alleles merged into this candidate (only when > 1; header line only when insertion grouping is on) |
 | INFO `ORIGIN` | 0, Flag | indel before the first reference base (right-padded: anchor base is the last REF/ALT base) |
+| INFO `CRISPR` | 0, Flag | the site's 0-based position (POS − 1; for indels the anchor) lies inside a CRISPR array detected by pilercr-rs; annotation only, TIER and FILTER are unchanged (header line only with `--crispr`) |
 | INFO `REASON` | 1, String | tier rule that fired |
 | FORMAT `GT` | 1, String | genotype (haploid, always `1`) |
 | FORMAT `AD` | R, Integer | ref and alt read counts |
@@ -126,14 +128,18 @@ plus the flags `MIXED`, `STRAND`, `ORIGIN`, `LOWCOV`, `LINKED`/`UNLINKED`, `GROU
 
 ### P.bed
 
-Tiered regions **plus** untiered annotations (`not_assessable`, `low_coverage`, tier `none`). Header
+Tiered regions **plus** untiered annotations (`not_assessable`, `low_coverage`, and `crispr` with
+`--crispr`, tier `none`). Header
 line `#contig start end label score tier reason depth_ratio highmapq_share extra`. Columns contig,
 start, end, label, score, **tier (col 6, 1-based)**, reason, depth_ratio, highmapq_share, extra
 (`NA` for a missing ratio, `.` for an empty extra). Labels: `snp_cluster`, `large_ins`,
 `large_del`, `clip_hotspot`, `depth_low`, `depth_half`, `depth_high`, `depth_step`,
-`linked_haplotype`, `split_junction`, plus the untiered `not_assessable` and `low_coverage`.
-`depth_segment` (the paired interval between two `depth_step` ends) is written to the BED but is
-**not** a finding member and is not counted in `alerts`. A `clip_hotspot` whose clipped reads
+`linked_haplotype`, `split_junction`, plus the untiered `not_assessable`, `low_coverage` and
+`crispr`. A `crispr` row (with `--crispr`) has score 0, tier `none`, reason `.`, `.` for both
+depth columns and `copies=<n>;repeat=<mean bp>;spacer=<mean bp>;consensus=<letters>` in extra; it
+is **not** a finding member and is not counted in `alerts`. `depth_segment` (the paired interval
+between two `depth_step` ends) is written to the BED but is **not** a finding member and is not
+counted in `alerts`. A `clip_hotspot` whose clipped reads
 continue on another contig gets `;clip_to=<contig>:<start>-<end>;clip_to_reads=<n>` (one pair per
 side, `|`-joined).
 
@@ -162,7 +168,8 @@ verdict, with a `circular`/`unclear` verdict wrapping and `linear` not; also `ci
 circular/linear/unclear from reads spanning the end→start junction, the FASTA header flag, and the
 junction as `clean`, `overlap_<n>` or `gap_<n>`), `linkage`, and `qc_qv` =
 `max(0, −10·log10((trusted red+orange site calls + 1) / (confident bases + 1)))`, finite with zero
-calls. `xlinks` counts the cross-contig clip links. `qc_qv` is a summary of qc's own calls, not
+calls. `xlinks` counts the cross-contig clip links; `crispr` counts the arrays detected with
+`--crispr` (always present, zeros without the flag). `qc_qv` is a summary of qc's own calls, not
 comparable to Merqury or Inspector QV.
 
 All top-level keys, in order:
@@ -177,6 +184,7 @@ All top-level keys, in order:
 | `indel_min_af`, `lowcov_abs`, `gc_window` | effective indel AF prefilter, absolute low-coverage depth and the GC track window in bp (`0` = no `P.gc.bedgraph`) |
 | `reads` | `total`, `mapped`, `unmapped`, `unmapped_fraction`, `bases_total`, `bases_mapped`, `bases_unmapped`, `mean_aligned_span`, `records` (`primary`, `supplementary`, `secondary`, `duplicate`, `qcfail`, `unmapped`, `hard_clipped`) |
 | `assembly` | `length_bp`, `contigs`, `assessable_bp`, `assessable_fraction`, `low_coverage_bp`, `low_coverage_fraction`, `confident_bp` |
+| `crispr` | `arrays` and `bp` (total array span) detected in the reference with `--crispr`; zeros without the flag, so the schema is stable |
 | `alerts` | `red`, `orange`, `yellow`, `gray`, `lowcov` (same tiers) and `by_type` (the same counts per site type and region label) |
 | `findings` | `red`, `orange`, `yellow`, `by_likely`, and `lowcov` (the same for low-coverage findings) |
 | `xlinks` | number of cross-contig clip links |

@@ -84,8 +84,9 @@ pub(crate) fn collect_alerts(ncontigs: usize, cands: &[Candidate], regions: &[Re
         top.bump(c.vtype.name(), c.tier.tier, lowcov);
     }
     for r in regions {
-        // `depth_segment` is a derived paired interval (output only), not a call.
-        if r.label == "depth_segment" {
+        // `depth_segment` is a derived paired interval (output only) and
+        // `crispr` is an untiered annotation: neither is a call.
+        if matches!(r.label, "depth_segment" | "crispr") {
             continue;
         }
         let tier = match r.tier {

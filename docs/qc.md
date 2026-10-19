@@ -22,6 +22,7 @@ cramhook qc --in old.cram --ref old.fa --preset lr:hq --out-prefix q --candidate
 |------|---------|---------|
 | `--threads` | all cores | worker threads for the scan, circularity and linkage passes |
 | `--candidates` | off | also write `q.candidates.tsv` |
+| `--crispr` | off | annotate CRISPR arrays detected in `--ref` (annotation only; see below) |
 | `--gc-window` | 100 | GC track window in bp (`q.gc.bedgraph`); `0` disables the file |
 | `--progress` | off | machine-readable progress on stderr, one JSON object per line (phases `scan`, `circularity`, `call`, `linkage`, `output`); see [output-format.md](output-format.md#progress-stream---progress) |
 
@@ -35,9 +36,9 @@ With `--out-prefix q`, qc writes:
 | file | contents |
 |---|---|
 | `q.vcf` | tiered site calls (`TIER`, FILTER `PASS`/`LowCov`) |
-| `q.bed` | tiered regions plus untiered annotations (`not_assessable`, `low_coverage`) |
+| `q.bed` | tiered regions plus untiered annotations (`not_assessable`, `low_coverage`, and `crispr` with `--crispr`) |
 | `q.findings.bed` | one finding per group of tiered calls, with the `likely` hint |
-| `q.json` | run summary: reads, assembly, alerts, findings, warnings, contigs, linkage, `qc_qv` |
+| `q.json` | run summary: reads, assembly, `crispr` counts, alerts, findings, warnings, contigs, linkage, `qc_qv` |
 | `q.depth.bedgraph` | per-position aligned-base depth |
 | `q.gc.bedgraph` | GC fraction per `--gc-window` bp window, from the reference (`0` disables) |
 | `q.candidates.tsv` (with `--candidates`) | every pre-filtered candidate with all statistics |
@@ -99,6 +100,29 @@ low-quality homopolymer indels from noise visible without letting them dominate 
 score. `--no-gray-homopolymer` disables it (such calls stay yellow and do form findings); it is on
 for both presets. Linkage and SNP clusters are unaffected: both work on SNP sites only, so a gray
 INS/DEL can never be a linked group member or a cluster site.
+
+## CRISPR arrays (`--crispr`)
+
+With `--crispr`, qc detects CRISPR arrays in the `--ref` FASTA with **pilercr-rs** (MIT), a Rust
+port of PILER-CR, and annotates them. This is **annotation only**: an array never changes a TIER,
+is never a finding member and is never counted in `alerts`. The outputs are identical with and
+without the flag apart from the annotation itself.
+
+- `q.bed`: one untiered row per array, label `crispr`, score 0, tier `none`, reason `.`,
+  with `copies=<n>;repeat=<mean bp>;spacer=<mean bp>;consensus=<letters>` in the extra column.
+  Rows are ordered with the other regions (contig, then start).
+- `q.vcf`: INFO flag `CRISPR` on sites whose 0-based position (POS − 1; for indels the anchor) lies
+  inside an array. TIER and FILTER are unchanged.
+- `q.json`: top-level `crispr` block with `arrays` and `bp` (the total array span). It is always
+  present, zero without the flag, so the schema is stable.
+
+Detection starts once the reference is loaded and runs on its own thread, concurrently with the
+scan and circularity passes; only mapping the arrays to scanned contigs happens in the `call`
+phase. An array that cannot be mapped to a scanned contig (for example one crossing a contig
+boundary, or one with malformed alignment rows) is skipped with a warning rather than failing the
+run. A failure of the whole pass — the `--ref` FASTA cannot be
+parsed by pilercr-rs, or detection itself errors — does fail the run, since `--crispr` was
+explicitly requested and zero arrays would be a wrong answer.
 
 ## `likely` hint
 

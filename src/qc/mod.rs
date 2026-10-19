@@ -10,6 +10,7 @@
 pub(crate) mod alerts;
 pub(crate) mod calling;
 pub(crate) mod circularity;
+pub(crate) mod crispr;
 pub(crate) mod findings;
 pub(crate) mod junctions;
 pub(crate) mod likely;
@@ -27,6 +28,7 @@ pub(crate) mod test_util;
 
 pub(crate) use alerts::*;
 pub(crate) use calling::*;
+pub(crate) use crispr::*;
 pub(crate) use findings::*;
 pub(crate) use likely::*;
 pub use params::*;
@@ -81,6 +83,11 @@ fn run_qc_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &QcPar
             bail!("--linear: contig {l:?} is not in {}", ref_path.display());
         }
     }
+    // CRISPR arrays (annotation only): the FASTA read and `pilercr-rs`
+    // detection are independent of the scan, so they start here and overlap
+    // the scan and the circularity pass. Mapping the arrays onto contigs
+    // (`finish_crispr`, in the call phase) is the only part that needs `scan`.
+    let crispr_handle = if params.crispr { Some(crispr::start_crispr(ref_path)) } else { None };
     let sp = ScanParams {
         threads: params.threads.max(1),
         large_merge_gap: params.large_merge_gap,
@@ -106,6 +113,15 @@ fn run_qc_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &QcPar
     let circ = circularity::run_circularity(input, ref_path, &scan, &fasta, params)?;
     progress.end();
     progress.start("call");
+    // CRISPR mapping (annotation only). A whole-pass failure (unreadable
+    // FASTA, detector error, panicked worker) is fatal: the user asked for
+    // the annotation, so silently reporting zero arrays would be a wrong
+    // answer. Individual unmappable arrays are skipped inside
+    // `finish_crispr` (with a warning) instead.
+    let crispr = match crispr_handle {
+        Some(handle) => finish_crispr(handle, &scan)?,
+        None => Vec::new(),
+    };
     let circ_s = circ.timing_s;
 
     let linear: HashSet<&str> = params.linear.iter().map(|s| s.as_str()).collect();
@@ -282,6 +298,8 @@ fn run_qc_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &QcPar
     progress.end();
     progress.start("output");
     regions.extend(link.regions);
+    // Annotation-only CRISPR rows: untiered, never a finding member or alert.
+    regions.extend(crispr.iter().map(CrisprArray::region));
     regions.sort_by(|a, b| (a.tid, a.start, a.end, a.label).cmp(&(b.tid, b.start, b.end, b.label)));
 
     // Findings: group the tiered calls into one problem location each, then
@@ -327,6 +345,7 @@ fn run_qc_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &QcPar
         circ: &circ,
         xlinks: &xlinks,
         depth_step_origin_dropped: &depth_step_origin_dropped,
+        crispr: &crispr,
     };
     let summary = outs.write_all(scan_s, qc_s, circ_s, t0)?;
     progress.end();

@@ -38,6 +38,10 @@
     "low_coverage_fraction": 0.0229058192863516,
     "confident_bp": 2031413
   },
+  "crispr": {
+    "arrays": 0,
+    "bp": 0
+  },
   "alerts": {
     "red": 0,
     "orange": 7,
@@ -1739,6 +1743,7 @@
   "params": {
     "linear": [],
     "candidates": false,
+    "crispr": false,
     "min_depth": 5,
     "max_mq0_frac": 0.5,
     "min_alt": 2,

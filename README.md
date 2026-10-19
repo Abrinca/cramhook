@@ -63,7 +63,7 @@ the mapping (`samtools index old.cram`) and run `qc` and `fish` on it directly. 
 | `lift` | `new.cram` + `.crai` | the alignments on the new assembly; each record tagged `XL:A:T` (translated) or `XL:A:R` (remapped) |
 | `lift` | `lift.stats.json` (`--stats`) | counts, deferrals by reason, parameters, timings |
 | `qc` | `qc.vcf` | tiered site calls (`TIER`, FILTER `PASS`/`LowCov`) |
-| `qc` | `qc.bed` | tiered regions (clip hotspots, large indels, depth changes, split-read junctions, linked haplotypes) |
+| `qc` | `qc.bed` | tiered regions (clip hotspots, large indels, depth changes, split-read junctions, linked haplotypes), plus untiered `not_assessable`/`low_coverage` and, with `--crispr`, `crispr` array annotations |
 | `qc` | `qc.findings.bed` | one finding per problem location, with tier and `likely` hint |
 | `qc` | `qc.json` | run summary: alert and finding counts, per-contig depth and circularity, `qc_qv` |
 | `qc` | `qc.depth.bedgraph` | per-position aligned-base depth |
