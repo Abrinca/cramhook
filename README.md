@@ -1,4 +1,9 @@
-# cramhook
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo/logo-cramhook-dark-full.svg">
+    <img src="docs/img/logo/logo-cramhook-light-full.svg" alt="cramhook" width="360">
+  </picture>
+</h1>
 
 **A fast, light workflow for long-read bacterial assemblies** (ONT R10 sup reads mapped with
 `lr:hq`, PacBio HiFi): check where the reads disagree with an assembly and pull out the reads that

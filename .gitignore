@@ -16,3 +16,4 @@ __pycache__/
 /.playwright-mcp/
 /dist/
 /testdata/data/
+/docs/img/logo/*.png
