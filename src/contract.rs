@@ -40,7 +40,8 @@ const LIFT_NEUTRAL_VALUE_OPTS: &[&str] = &[
 ];
 
 /// `lift` CLI flags that do **not** affect which records are translated or how.
-const LIFT_NEUTRAL_FLAG_OPTS: &[&str] = &["--strict", "--keep-tmp", "--xl-tag", "--no-xl-tag"];
+const LIFT_NEUTRAL_FLAG_OPTS: &[&str] =
+    &["--strict", "--keep-tmp", "--xl-tag", "--no-xl-tag", "--progress"];
 
 /// `lift` options that **do** affect eligibility or safety. Any of these in an
 /// earlier lift's `CL` means an inherited `XL:A:T` record's stripped `s2` (or the
@@ -764,7 +765,7 @@ mod tests {
             remap,
             &[
                 "",
-                " --min-input-mb=0 --keep-tmp --no-xl-tag --preset map-hifi --strict",
+                " --min-input-mb=0 --keep-tmp --no-xl-tag --preset map-hifi --strict --progress",
             ],
         );
         assert_eq!(check_contract(&h), Ok(Contract { preset: Preset::MapHifi, chained: true }));

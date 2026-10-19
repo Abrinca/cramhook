@@ -12,6 +12,7 @@ pub mod fasta;
 pub mod fish;
 pub mod lift;
 pub mod paf;
+pub mod progress;
 pub mod qc;
 pub mod scan;
 pub mod translate;
@@ -25,7 +26,8 @@ pub use diff::{
 pub use fasta::Fasta;
 pub use paf::{PafRecord, Strand};
 pub use translate::{Fallback, Params, Reason, Stats, TranslateConfig, translate};
-pub use lift::{LiftOptions, lift};
+pub use lift::{LiftOptions, lift, lift_with_progress};
+pub use progress::Progress;
 pub use fish::{
     BaitContig, BaitRecords, BaitSummary, FishParams, FishScope, FishSummary, FishTier, run_fish,
 };

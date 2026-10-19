@@ -67,6 +67,8 @@ pub struct ScanParams {
     pub clip_min_len: u32,
     /// Chunk size override (bp); `None` picks one from the genome size and threads.
     pub chunk_size: Option<u64>,
+    /// Progress reporter for the scan phase (finished chunks).
+    pub progress: crate::progress::Progress,
 }
 
 /// Record counts by category (records whose start lies in a chunk).
@@ -881,6 +883,7 @@ pub fn scan(input: &Path, ref_path: &Path, fasta: &Fasta, p: &ScanParams) -> Res
     let global: Vec<Mutex<Option<Acc>>> = refs.iter().map(|_| Mutex::new(None)).collect();
     let next = AtomicUsize::new(0);
     let nthreads = p.threads.max(1).min(tasks.len());
+    let done_bp = crate::progress::ChunkFrac::new(&p.progress, total);
 
     let workers: Vec<Result<Worker>> = std::thread::scope(|sc| {
         let handles: Vec<_> = (0..nthreads)
@@ -915,6 +918,7 @@ pub fn scan(input: &Path, ref_path: &Path, fasta: &Fasta, p: &ScanParams) -> Res
                                     let ga = g.get_or_insert_with(|| Acc::new(0, refs[tid].len()));
                                     ga.add(&acc);
                                 }
+                                done_bp.add((end - start) as u64);
                             }
                             Task::Unplaced => {
                                 reader
@@ -1156,6 +1160,7 @@ mod tests {
             large_piece_min: 10,
             clip_min_len: min_len,
             chunk_size: None,
+            progress: Default::default(),
         };
         let mut acc = Acc::new(0, refseq.len());
         let mut w = Worker { edge_clips: vec![0; 1], aligned_bases: vec![0; 1], ..Default::default() };

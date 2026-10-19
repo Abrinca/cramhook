@@ -452,6 +452,7 @@ pub(crate) fn run_circularity(
 
     let next = AtomicUsize::new(0);
     let nthreads = p.threads.max(1).min(tasks.len().max(1));
+    let done_bp = crate::progress::ChunkFrac::new(&p.progress, total);
     let collected: Vec<Result<Vec<(usize, Vec<u8>, Align)>>> = std::thread::scope(|sc| {
         let handles: Vec<_> = (0..nthreads)
             .map(|_| {
@@ -478,6 +479,7 @@ pub(crate) fn run_circularity(
                                 local.push((tid, rec.qname().to_vec(), a));
                             }
                         }
+                        done_bp.add((end - start) as u64);
                     }
                     Ok(local)
                 })

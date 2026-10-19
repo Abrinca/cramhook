@@ -756,6 +756,7 @@ pub(crate) fn run_linkage(
     // Second pass: one reader per thread, one chunk per task.
     let next = AtomicUsize::new(0);
     let nthreads = p.threads.max(1).min(tasks.len());
+    let done_bp = crate::progress::ChunkFrac::new(&p.progress, total);
     let chunks: Vec<Result<Vec<Chunk>>> = std::thread::scope(|sc| {
         let handles: Vec<_> = (0..nthreads)
             .map(|_| {
@@ -782,6 +783,7 @@ pub(crate) fn run_linkage(
                             emit_record(&rec, &sites[tid], &name_to_tid, &mut chunk);
                         }
                         local.push(chunk);
+                        done_bp.add((end - start) as u64);
                     }
                     Ok(local)
                 })

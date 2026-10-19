@@ -45,9 +45,18 @@ use crate::fasta::Fasta;
 use crate::scan::{self, ScanParams};
 use stats::{BbFit, MomentSums};
 
+/// `--progress` phases of `qc`, in order.
+pub const QC_PHASES: [&str; 5] = ["scan", "circularity", "call", "linkage", "output"];
+
 /// Run `cramhook qc`. Returns the JSON summary that was written.
 pub fn run_qc(input: &Path, ref_path: &Path, out_prefix: &Path, params: &QcParams) -> Result<output::Summary> {
+    params.progress.plan(&QC_PHASES);
+    params.progress.finish(run_qc_inner(input, ref_path, out_prefix, params))
+}
+
+fn run_qc_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &QcParams) -> Result<output::Summary> {
     let t0 = Instant::now();
+    let progress = &params.progress;
     validate_lowcov_rel(params.lowcov_rel)?;
     validate_ins_group_frac(params.ins_group_len_frac)?;
     validate_ins_group_frac(params.ins_group_max_diff)?;
@@ -79,8 +88,11 @@ pub fn run_qc(input: &Path, ref_path: &Path, out_prefix: &Path, params: &QcParam
         large_piece_min: params.large_piece_min,
         clip_min_len: params.clip_min_len,
         chunk_size: params.chunk_size,
+        progress: progress.clone(),
     };
+    progress.start("scan");
     let scan = scan::scan(input, ref_path, &fasta, &sp)?;
+    progress.end();
     let scan_s = t0.elapsed().as_secs_f64();
     let t1 = Instant::now();
 
@@ -90,7 +102,10 @@ pub fn run_qc(input: &Path, ref_path: &Path, out_prefix: &Path, params: &QcParam
     // then drives every later wrap (depth bands, depth step, clusters and the
     // junction edge exclusion), so no input to this pass depends on the wrap
     // flag itself.
+    progress.start("circularity");
     let circ = circularity::run_circularity(input, ref_path, &scan, &fasta, params)?;
+    progress.end();
+    progress.start("call");
     let circ_s = circ.timing_s;
 
     let linear: HashSet<&str> = params.linear.iter().map(|s| s.as_str()).collect();
@@ -259,9 +274,13 @@ pub fn run_qc(input: &Path, ref_path: &Path, out_prefix: &Path, params: &QcParam
     // `linked_haplotype` regions. Runs after the depth bands so a trusted
     // `depth_high` region can make a group red.
     let names: Vec<&str> = scan.contigs.iter().map(|c| c.name.as_str()).collect();
+    progress.end();
+    progress.start("linkage");
     let link = link::run_linkage(
         input, ref_path, &scan, &ctxs, &refs, &mut cands, &regions, &names, params, lowcov_abs,
     )?;
+    progress.end();
+    progress.start("output");
     regions.extend(link.regions);
     regions.sort_by(|a, b| (a.tid, a.start, a.end, a.label).cmp(&(b.tid, b.start, b.end, b.label)));
 
@@ -310,6 +329,7 @@ pub fn run_qc(input: &Path, ref_path: &Path, out_prefix: &Path, params: &QcParam
         depth_step_origin_dropped: &depth_step_origin_dropped,
     };
     let summary = outs.write_all(scan_s, qc_s, circ_s, t0)?;
+    progress.end();
     Ok(summary)
 }
 

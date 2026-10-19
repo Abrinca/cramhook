@@ -198,7 +198,7 @@ tags (e.g. `cs`, `MM`) are remapped.
 A CRAM produced by `cramhook lift` (its `XL` tag and its `cramhook` `@PG` chain) may be lifted
 again. A chain is only accepted when **every** lift in it (and the current lift) uses default
 eligibility/safety options — paths, `--threads`, `--stats`, tagging, `--keep-tmp`,
-`--min-input-mb`, `--preset` and `--strict` are allowed; anything that changes which reads are
+`--min-input-mb`, `--preset`, `--strict` and `--progress` are allowed; anything that changes which reads are
 translated (`--min-mapq`, `--max-clip`, `--margin`, `--max-de`, `--t2-*`, `--max-s2-ratio`,
 `--max-minus-indel`, `--max-zdrop`, the `--clip-*` options, `--unsafe-no-clip-screen`) makes the
 contract fail and the input is fully remapped. `de`, MAPQ, clips, `s1` and `SA` are re-tested
@@ -220,7 +220,8 @@ mapping in contig, strand and MAPQ for all 7.6 M reads (CIGAR-only differences f
 
 ```bash
 cramhook lift --in old.cram --old-ref old.fa --new-ref new.fa --out new.cram \
-  [--threads N] [--stats stats.json] [--no-xl-tag] [--strict] [--keep-tmp] [--preset map-hifi|lr:hq]
+  [--threads N] [--stats stats.json] [--no-xl-tag] [--strict] [--keep-tmp] [--preset map-hifi|lr:hq] \
+  [--progress]
 ```
 
 | Flag | Default | Purpose |
@@ -231,6 +232,7 @@ cramhook lift --in old.cram --old-ref old.fa --new-ref new.fa --out new.cram \
 | `--no-xl-tag` | off | omit the `XL:A:T` (translated) / `XL:A:R` (remapped) tag (`--xl-tag` is accepted and is the default) |
 | `--strict` | off | error on contract violation instead of remapping everything |
 | `--keep-tmp` | off | keep the diff and the deferred reads in `OUT.tmp/` |
+| `--progress` | off | machine-readable progress on stderr, one JSON object per line (phases `diff`, `translate_pass`, `writer_drain`, `sort_index`); see [output-format.md](output-format.md#progress-stream---progress) |
 | `--min-mapq`, `--max-s2-ratio`, `--max-de`, `--max-clip` (0 = unlimited), `--margin`, `--max-minus-indel`, `--max-zdrop` | see rules | eligibility thresholds |
 | `--clip-k`, `--clip-min-hits`, `--clip-min-len`, `--clip-flank`, `--unsafe-no-clip-screen` | 17, 2, 20, 0, off | clip screen |
 | `--t2-win`, `--t2-step`, `--t2-flank`, `--t2-junction-flank` | 10000, 2000, 10000, 50 | T2 windowing and junction taint (junction flank 0 disables it) |

@@ -515,6 +515,6 @@ mod tests {
         let b = local_baselines(&means, &centers, len, 50_000.0, true);
         let el = t.elapsed().as_secs_f64();
         assert_eq!(b.len(), n);
-        eprintln!("local_baselines n={n}: {:.1} ms", el * 1000.0);
+        crate::note!("local_baselines n={n}: {:.1} ms", el * 1000.0);
     }
 }

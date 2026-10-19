@@ -18,6 +18,15 @@ and clips; secondary, duplicate and QC-fail records are skipped. Hard clips are 
 cramhook qc --in old.cram --ref old.fa --preset lr:hq --out-prefix q --candidates
 ```
 
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--threads` | all cores | worker threads for the scan, circularity and linkage passes |
+| `--candidates` | off | also write `q.candidates.tsv` |
+| `--progress` | off | machine-readable progress on stderr, one JSON object per line (phases `scan`, `circularity`, `call`, `linkage`, `output`); see [output-format.md](output-format.md#progress-stream---progress) |
+
+The thresholds (`--min-depth`, `--fdr`, `--clip-*`, `--depth-*`, `--link-*`, …) are listed by
+`cramhook qc --help`.
+
 ## Outputs
 
 With `--out-prefix q`, qc writes:

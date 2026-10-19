@@ -33,6 +33,9 @@ VCF `POS` is 1-based. One exception: the `sa` column of `P.fish.tsv` copies posi
 | `fish` | `P.fish.json` | [JSON](#pfishjson) |
 | `fish` | `P.bait_ref.fa`, `P.bait.cram` (with `--bait`) | [FASTA, CRAM](#pbait_reffa-pbaitcram) |
 
+With `--progress`, `lift`, `qc` and `fish` also write a [progress stream](#progress-stream---progress)
+to stderr.
+
 The debug subcommands write JSON with the same `format_version` first key (`cramhook diff`:
 `P.summary.json`; `cramhook translate`: `P.stats.json`, the same keys as the lift stats); their
 other files are not part of the public format.
@@ -254,3 +257,48 @@ differs).
 
 With `--bait`: `P.bait_ref.fa` (assembly + bait contigs, indexed) and `P.bait.cram` (+ index), the
 lift of the input onto that reference (a [lift CRAM](#lift-cram)), kept for inspection in IGV.
+
+## Progress stream (`--progress`)
+
+With `--progress`, `lift`, `qc` and `fish` write machine-readable progress to **stderr**, one JSON
+object per line, so a GUI can drive a progress bar. Without the flag nothing is written and every
+output is unchanged; with it the output files are the same too (only the `lift` `@PG` `CL`, which
+records the command line, shows the flag).
+
+```
+{"progress":1,"cmd":"qc","event":"plan","phases":["scan","circularity","call","linkage","output"],"elapsed_s":0.00}
+{"progress":1,"cmd":"qc","phase":"scan","event":"start","elapsed_s":0.00}
+{"progress":1,"cmd":"qc","phase":"scan","event":"update","frac":0.420,"elapsed_s":1.31}
+{"progress":1,"cmd":"qc","phase":"scan","event":"end","elapsed_s":2.05}
+…
+{"progress":1,"cmd":"qc","event":"done","elapsed_s":2.40}
+```
+
+| key | meaning |
+|---|---|
+| `progress` | version of the stream, currently **1** (independent of `format_version`) |
+| `cmd` | `lift`, `qc` or `fish` |
+| `event` | `plan`, `start`, `update`, `end`, `done` or `error` |
+| `phases` | (`plan`) the phase names in the order they run |
+| `phase` | (`start`, `update`, `end`) the running phase |
+| `frac` | (`update`) fraction of the phase done, in [0, 1], 3 decimals, increasing within a phase |
+| `message` | (`error`) the error message |
+| `elapsed_s` | seconds since the command started, 2 decimals, never decreasing |
+
+Order: the `plan` line comes first; then every phase of the plan, in plan order, as one `start`,
+zero or more `update` and one `end` line; the last line is `done`. On a failure the stream stops
+with an `error` line (possibly in the middle of a phase) and the command exits non-zero with its
+usual error message. `update` lines are rate limited (at most ~5 per second per phase, and only
+when `frac` grew by at least 0.01), so a short phase may have none.
+
+| command | phases | `frac` |
+|---|---|---|
+| `lift` | `diff`, `translate_pass`, `writer_drain`, `sort_index` (the `timings_s` names of the stats) | `translate_pass`: reference position of the input record (length of the earlier contigs + position) / total reference length, from the header; the unplaced unmapped tail does not advance it. `writer_drain`: remapped reads received from minimap2 / reads sent to the remap. `diff` (minimap2) and `sort_index` (samtools): none. With the tiny-input or contract fallback `diff` is skipped but still reported as a `start` + `end` pair |
+| `qc` | `scan`, `circularity`, `call`, `linkage`, `output` | `scan`, `circularity`, `linkage`: reference bp of the finished chunks / total. `call` (site calling, regions) and `output` (findings, writing the files): none |
+| `fish` | `pass`, `bait_lift` (only with `--bait`), `payload`, `output` | `pass` (selection), `payload` (FASTQ payload of the selected reads): reference bp of the finished chunks / total. `bait_lift` (the internal lift onto assembly + bait, reported as this one phase) and `output`: none |
+
+Each line is written whole, under a lock, so it never interleaves with other stderr output of
+cramhook. stderr also carries the usual human-readable messages (warnings, the final summary): **lines
+not starting with `{` are not progress lines** and should be skipped. minimap2 and samtools run with
+their stderr captured, not inherited. All stderr writes are best effort: if the reader closes the
+pipe, the command still runs to completion and writes its outputs (with or without `--progress`).

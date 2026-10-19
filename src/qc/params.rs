@@ -209,6 +209,9 @@ pub struct QcParams {
     pub xlink_max_gap: u32,
     #[serde(skip)]
     pub chunk_size: Option<u64>,
+    /// `--progress` reporter (off by default).
+    #[serde(skip)]
+    pub progress: crate::progress::Progress,
 }
 
 impl Default for QcParams {
@@ -299,6 +302,7 @@ impl Default for QcParams {
             junction_yellow: 0.02,
             xlink_max_gap: 1000,
             chunk_size: None,
+            progress: Default::default(),
         }
     }
 }

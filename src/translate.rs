@@ -315,7 +315,7 @@ pub fn zdrop_statistic(cigar: &[Cigar], md: Option<&str>, sc: &Scoring) -> Optio
 /// Print a prominent warning when the clip screen is disabled.
 pub(crate) fn warn_if_unsafe_clip_screen(cfg: &TranslateConfig) {
     if cfg.unsafe_no_clip_screen {
-        eprintln!(
+        crate::note!(
             "WARNING: clip screen DISABLED (--unsafe-no-clip-screen): chimeric reads may be \
              translated WITHOUT their supplementary alignment; the output is NOT fail-safe."
         );
@@ -4213,6 +4213,7 @@ fn sa_source(rec: &bam::Record, contig: &str, nm: i64) -> Result<SaSource> {
 /// stream with `PassOutcome::ContractViolation` (used by the tiny-input
 /// fallback so that a real contract violation still takes precedence). Contract
 /// fallbacks pass `validate = false` because every read is already remapped.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_all_defer<S: LiftSink>(
     reader: &mut bam::Reader,
     sink: S,
@@ -4221,7 +4222,9 @@ pub(crate) fn run_all_defer<S: LiftSink>(
     defer_reason: Reason,
     validate: bool,
     t_stream: Instant,
+    progress: &crate::progress::Progress,
 ) -> Result<PassOutcomeAndStats> {
+    let mut frac = crate::progress::RefFrac::from_header(progress, reader.header());
     let mut pass = Pass::new(ctx, sink, None);
     pass.stats.contract_ok = contract_reason.is_none();
     pass.stats.contract_reason = contract_reason.clone();
@@ -4230,6 +4233,9 @@ pub(crate) fn run_all_defer<S: LiftSink>(
     let mut rec = bam::Record::new();
     while let Some(res) = reader.read(&mut rec) {
         res?;
+        if let Some(f) = frac.as_mut() {
+            f.record(rec.tid(), rec.pos());
+        }
         let _ = rec.remove_aux(b"MD");
         let flag = rec.flags();
         let secondary = flag & 0x100 != 0;
@@ -4279,7 +4285,9 @@ pub(crate) fn run_translate_pass<S: LiftSink>(
     ctx: Ctx<'_>,
     preset: Preset,
     t_stream: Instant,
+    progress: &crate::progress::Progress,
 ) -> Result<PassOutcomeAndStats> {
+    let mut frac = crate::progress::RefFrac::from_header(progress, reader.header());
     let t_screen = Instant::now();
     let screen = if ctx.cfg.unsafe_no_clip_screen {
         None
@@ -4312,6 +4320,9 @@ pub(crate) fn run_translate_pass<S: LiftSink>(
     let mut rec = bam::Record::new();
     while let Some(res) = reader.read(&mut rec) {
         res?;
+        if let Some(f) = frac.as_mut() {
+            f.record(rec.tid(), rec.pos());
+        }
         let flag = rec.flags();
         let secondary = flag & 0x100 != 0;
         let supplementary = flag & 0x800 != 0;
@@ -4564,7 +4575,16 @@ pub fn translate(
         };
         let sink = FileSink::new(out_prefix, &output_header)?;
         let mut stats =
-            run_all_defer(&mut reader2, sink, ctx, Some(reason), Reason::Contract, false, Instant::now())?
+            run_all_defer(
+                &mut reader2,
+                sink,
+                ctx,
+                Some(reason),
+                Reason::Contract,
+                false,
+                Instant::now(),
+                &crate::progress::Progress::off(),
+            )?
                 .stats;
         stats.params = Params::new(cfg, cfg.max_de.unwrap_or(0.0));
         stats.params.threads = threads;
@@ -4601,7 +4621,8 @@ pub fn translate(
     };
     let t_stream = Instant::now();
     let sink = FileSink::new(out_prefix, &output_header)?;
-    let res = run_translate_pass(&mut reader, sink, ctx, preset, t_stream)?;
+    let res =
+        run_translate_pass(&mut reader, sink, ctx, preset, t_stream, &crate::progress::Progress::off())?;
     let mut stats = res.stats;
     match res.outcome {
         PassOutcome::Completed => {}
@@ -4621,8 +4642,17 @@ pub fn translate(
                 thr,
             };
             let sink2 = FileSink::new(out_prefix, &output_header)?;
-            stats = run_all_defer(&mut reader2, sink2, ctx2, Some(reason), Reason::Contract, false, t_stream)?
-                .stats;
+            stats = run_all_defer(
+                &mut reader2,
+                sink2,
+                ctx2,
+                Some(reason),
+                Reason::Contract,
+                false,
+                t_stream,
+                &crate::progress::Progress::off(),
+            )?
+            .stats;
             // The contract was valid before the mid-stream violation, so the
             // preset is known even though every read is now deferred.
             stats.preset = preset.minimap2_name().to_string();

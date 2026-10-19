@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 
-use cramhook::Preset;
+use cramhook::{Preset, note};
 
 // The static musl build swaps musl's slow allocator for mimalloc; glibc builds are unchanged.
 #[cfg(target_env = "musl")]
@@ -332,6 +332,9 @@ struct QcArgs {
     /// Debug: scan chunk size in bp.
     #[arg(long, hide = true)]
     chunk_size: Option<u64>,
+    /// Write machine-readable progress to stderr (one JSON object per line).
+    #[arg(long)]
+    progress: bool,
 }
 
 /// `fish --scope`.
@@ -437,6 +440,9 @@ struct FishArgs {
     /// Only indels of at least this size take part in the merge.
     #[arg(long, default_value_t = 10)]
     indel_piece_min: u32,
+    /// Write machine-readable progress to stderr (one JSON object per line).
+    #[arg(long)]
+    progress: bool,
 }
 
 #[derive(Args)]
@@ -534,6 +540,9 @@ struct LiftArgs {
     /// exceeds this (minimap2's -z; 0 is a legitimate strict value).
     #[arg(long, default_value_t = 400, value_parser = parse_max_zdrop)]
     max_zdrop: i64,
+    /// Write machine-readable progress to stderr (one JSON object per line).
+    #[arg(long)]
+    progress: bool,
 }
 
 #[derive(Args)]
@@ -650,15 +659,29 @@ struct DiffArgs {
     t2_junction_flank: u64,
 }
 
-fn main() -> Result<()> {
+fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
-    match cli.cmd {
+    let r = match cli.cmd {
         Cmd::Lift(a) => run_lift_cmd(a),
         Cmd::Diff(a) => run_diff_cmd(a),
         Cmd::Translate(a) => run_translate_cmd(a),
         Cmd::Qc(a) => run_qc_cmd(a),
         Cmd::Fish(a) => run_fish_cmd(a),
+    };
+    match r {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            // Same text and exit code as returning the `Result` from `main`,
+            // but a closed stderr cannot panic.
+            note!("Error: {e:?}");
+            std::process::ExitCode::FAILURE
+        }
     }
+}
+
+/// `--progress`: a stderr reporter for `cmd`, or a disabled one.
+fn progress(on: bool, cmd: &'static str) -> cramhook::Progress {
+    if on { cramhook::Progress::stderr(cmd) } else { cramhook::Progress::off() }
 }
 
 fn run_lift_cmd(a: LiftArgs) -> Result<()> {
@@ -688,7 +711,7 @@ fn run_lift_cmd(a: LiftArgs) -> Result<()> {
         inherited_xl_ok: false,
     };
     let opts = cramhook::LiftOptions { strict: a.strict, keep_tmp: a.keep_tmp, min_input_mb: a.min_input_mb };
-    let stats = cramhook::lift(
+    let stats = cramhook::lift_with_progress(
         &a.r#in,
         &a.old_ref,
         &a.new_ref,
@@ -698,35 +721,36 @@ fn run_lift_cmd(a: LiftArgs) -> Result<()> {
         &tcfg,
         &opts,
         a.preset,
+        &progress(a.progress, "lift"),
     )?;
-    eprintln!("contract ok: {}", stats.contract_ok);
+    note!("contract ok: {}", stats.contract_ok);
     if let Some(r) = &stats.contract_reason {
-        eprintln!("contract reason: {r}");
+        note!("contract reason: {r}");
     }
-    eprintln!("preset: {}", stats.preset);
-    eprintln!(
+    note!("preset: {}", stats.preset);
+    note!(
         "records in: primary {}, supplementary {}, secondary {}, unmapped {}",
         stats.records_in.primary,
         stats.records_in.supplementary,
         stats.records_in.secondary,
         stats.records_in.unmapped
     );
-    eprintln!(
+    note!(
         "translated: {} reads ({} records); remapped: {} reads; out primary: {}",
         stats.translated_reads,
         stats.translated_records,
         stats.remapped_reads,
         stats.out_primary_records
     );
-    eprintln!(
+    note!(
         "origin-crossing: {} translated, {} deferred",
         stats.origin_crossing_translated, stats.origin_crossing_deferred
     );
     for (reason, n) in &stats.deferred_by_reason {
-        eprintln!("  deferred {reason}: {n}");
+        note!("  deferred {reason}: {n}");
     }
     let t = &stats.timings_s;
-    eprintln!(
+    note!(
         "timings: diff {:.2}s, pass {:.2}s, drain {:.2}s, sort+index {:.2}s, index {:.2}s, minimap2 {:.2}s, children_cpu {:.1}s, total {:.2}s",
         t.diff, t.translate_pass, t.writer_drain, t.sort_index, t.minimap2_index, t.minimap2_total, t.children_cpu, t.total
     );
@@ -761,31 +785,31 @@ fn run_translate_cmd(a: TranslateArgs) -> Result<()> {
     };
     let stats =
         cramhook::translate(&a.r#in, &a.old_ref, &a.new_ref, &a.out_prefix, &cfg, a.threads)?;
-    eprintln!("contract ok: {}", stats.contract_ok);
+    note!("contract ok: {}", stats.contract_ok);
     if let Some(r) = &stats.contract_reason {
-        eprintln!("contract reason: {r}");
+        note!("contract reason: {r}");
     }
-    eprintln!("preset: {}", stats.preset);
-    eprintln!(
+    note!("preset: {}", stats.preset);
+    note!(
         "records in: primary {}, supplementary {}, secondary {}, unmapped {}",
         stats.records_in.primary,
         stats.records_in.supplementary,
         stats.records_in.secondary,
         stats.records_in.unmapped
     );
-    eprintln!(
+    note!(
         "translated: {} reads ({} records); deferred: {} reads",
         stats.translated_reads, stats.translated_records, stats.deferred_reads
     );
-    eprintln!(
+    note!(
         "origin-crossing: {} translated, {} deferred",
         stats.origin_crossing_translated, stats.origin_crossing_deferred
     );
     if stats.qual_missing > 0 {
-        eprintln!("deferred reads with missing QUAL: {}", stats.qual_missing);
+        note!("deferred reads with missing QUAL: {}", stats.qual_missing);
     }
     for (reason, n) in &stats.deferred_by_reason {
-        eprintln!("  deferred {reason}: {n}");
+        note!("  deferred {reason}: {n}");
     }
     Ok(())
 }
@@ -869,30 +893,31 @@ fn run_qc_cmd(a: QcArgs) -> Result<()> {
         junction_yellow: a.junction_yellow,
         xlink_max_gap: a.xlink_max_gap,
         chunk_size: a.chunk_size,
+        progress: progress(a.progress, "qc"),
         ..Default::default()
     };
     let s = cramhook::run_qc(&a.r#in, &a.r#ref, &a.out_prefix, &params)?;
-    eprintln!("preset: {}", s.preset);
-    eprintln!(
+    note!("preset: {}", s.preset);
+    note!(
         "records: {} primary mapped, {} supplementary, {} unmapped ({:.2}% of reads)",
         s.reads.records.primary, s.reads.records.supplementary, s.reads.unmapped,
         100.0 * s.reads.unmapped_fraction
     );
-    eprintln!(
+    note!(
         "assembly: {} bp assessable ({:.4}), {} bp confident, {} bp low coverage",
         s.assembly.assessable_bp, s.assembly.assessable_fraction, s.assembly.confident_bp, s.assembly.low_coverage_bp
     );
-    eprintln!(
+    note!(
         "alerts: {} red, {} orange, {} yellow, {} gray (PASS); lowcov: {} red, {} orange, {} yellow, {} gray",
         s.alerts.counts.red, s.alerts.counts.orange, s.alerts.counts.yellow, s.alerts.counts.gray,
         s.alerts.counts.lowcov.red, s.alerts.counts.lowcov.orange, s.alerts.counts.lowcov.yellow,
         s.alerts.counts.lowcov.gray
     );
     for w in &s.warnings {
-        eprintln!("warning {}: {} bp ({:.4}) on {:?}", w.code, w.bp, w.fraction, w.contigs);
+        note!("warning {}: {} bp ({:.4}) on {:?}", w.code, w.bp, w.fraction, w.contigs);
     }
-    eprintln!("qc_qv: {:.2}", s.qc_qv);
-    eprintln!("timings: scan {:.2}s, qc {:.2}s, total {:.2}s", s.timing_s.scan, s.timing_s.qc, s.timing_s.total);
+    note!("qc_qv: {:.2}", s.qc_qv);
+    note!("timings: scan {:.2}s, qc {:.2}s, total {:.2}s", s.timing_s.scan, s.timing_s.qc, s.timing_s.total);
     Ok(())
 }
 
@@ -928,28 +953,29 @@ fn run_fish_cmd(a: FishArgs) -> Result<()> {
         indel_min_len: a.indel_min_len,
         indel_merge_gap: a.indel_merge_gap,
         indel_piece_min: a.indel_piece_min,
+        progress: progress(a.progress, "fish"),
         ..Default::default()
     };
     let s = cramhook::run_fish(&a.r#in, &a.r#ref, &a.out_prefix, &params)?;
-    eprintln!("scope: {}", s.params.scope);
-    eprintln!(
+    note!("scope: {}", s.params.scope);
+    note!(
         "selected: {} reads, {} bp",
         s.reads.reads, s.reads.bp
     );
     for (reason, c) in &s.reads.by_reason {
-        eprintln!("  {reason}: {} reads, {} bp", c.reads, c.bp);
+        note!("  {reason}: {} reads, {} bp", c.reads, c.bp);
     }
     for n in &s.notes {
-        eprintln!("note: {n}");
+        note!("note: {n}");
     }
     if let Some(b) = &s.bait {
         let fb = b.fallback.as_deref().map(|f| format!(", fallback {f}")).unwrap_or_default();
-        eprintln!(
+        note!(
             "bait: {} reads, {} bp ({} MAPQ 0); lift: {} translated, {} remapped{}",
             b.reads, b.bp, b.mapq0_reads, b.translated_reads, b.remapped_reads, fb
         );
     }
-    eprintln!(
+    note!(
         "records: {} primary, {} supplementary, {} secondary, {} duplicate, {} qcfail, {} unmapped",
         s.records.primary,
         s.records.supplementary,
@@ -958,7 +984,7 @@ fn run_fish_cmd(a: FishArgs) -> Result<()> {
         s.records.qcfail,
         s.records.unmapped
     );
-    eprintln!("timings: pass {:.2}s, total {:.2}s", s.timing_s.pass, s.timing_s.total);
+    note!("timings: pass {:.2}s, total {:.2}s", s.timing_s.pass, s.timing_s.total);
     Ok(())
 }
 
@@ -978,13 +1004,13 @@ fn run_diff_cmd(a: DiffArgs) -> Result<()> {
         params,
     )?;
     let s = &run.summary;
-    eprintln!("primary alignments: {}", s.n_primary_alignments);
-    eprintln!("blocks:  {} ({} bp)", s.blocks.count, s.blocks.bp);
-    eprintln!("taint T1: {} ({} bp)", s.taint.t1.count, s.taint.t1.bp);
-    eprintln!("taint T2: {} ({} bp)", s.taint.t2.count, s.taint.t2.bp);
-    eprintln!("novel:   {} ({} bp)", s.novel.count, s.novel.bp);
-    eprintln!("windows: {}", s.windows);
-    eprintln!(
+    note!("primary alignments: {}", s.n_primary_alignments);
+    note!("blocks:  {} ({} bp)", s.blocks.count, s.blocks.bp);
+    note!("taint T1: {} ({} bp)", s.taint.t1.count, s.taint.t1.bp);
+    note!("taint T2: {} ({} bp)", s.taint.t2.count, s.taint.t2.bp);
+    note!("novel:   {} ({} bp)", s.novel.count, s.novel.bp);
+    note!("windows: {}", s.windows);
+    note!(
         "timings: diff {:.2}s, t1 {:.2}s, novel {:.2}s, t2 {:.2}s, total {:.2}s",
         s.timings_s.diff, s.timings_s.t1, s.timings_s.novel, s.timings_s.t2, s.timings_s.total
     );

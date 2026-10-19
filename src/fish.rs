@@ -170,6 +170,8 @@ pub struct FishParams {
     pub indel_merge_gap: u32,
     /// Only indels of at least this size take part in the merge.
     pub indel_piece_min: u32,
+    /// `--progress` reporter (off by default).
+    pub progress: crate::progress::Progress,
 }
 
 impl Default for FishParams {
@@ -196,6 +198,7 @@ impl Default for FishParams {
             indel_min_len: 50,
             indel_merge_gap: 50,
             indel_piece_min: 10,
+            progress: Default::default(),
         }
     }
 }
@@ -1356,12 +1359,21 @@ fn run_payload_pass(
 ) -> Result<HashMap<String, Payload>> {
     let next = AtomicUsize::new(0);
     let nthreads = params.threads.max(1).min(tasks.len());
+    let total: u64 = tasks
+        .iter()
+        .map(|t| match *t {
+            Task::Region { start, end, .. } => (end - start) as u64,
+            Task::Unplaced => 0,
+        })
+        .sum();
+    let done_bp = crate::progress::ChunkFrac::new(&params.progress, total);
     let workers: Vec<Result<HashMap<String, Payload>>> = std::thread::scope(|sc| {
         let handles: Vec<_> = (0..nthreads)
             .map(|_| {
                 let tasks = tasks;
                 let next = &next;
                 let names = names;
+                let done_bp = &done_bp;
                 sc.spawn(move || -> Result<HashMap<String, Payload>> {
                     let mut reader = open_indexed(input, ref_path, FIELDS_FISH_MIN)?;
                     let mut rec = bam::Record::new();
@@ -1384,6 +1396,7 @@ fn run_payload_pass(
                                     }
                                     note_payload(&mut out, selected, &rec);
                                 }
+                                done_bp.add((end - start) as u64);
                             }
                             Task::Unplaced => {
                                 reader
@@ -1438,8 +1451,24 @@ fn completeness_expected(
     }
 }
 
+/// `--progress` phases of `fish`, in order (`bait_lift` only with `--bait`).
+pub fn fish_phases(bait: bool) -> Vec<&'static str> {
+    let mut v = vec!["pass"];
+    if bait {
+        v.push("bait_lift");
+    }
+    v.extend(["payload", "output"]);
+    v
+}
+
 /// Run `cramhook fish`. Returns the summary (also written to `P.fish.json`).
 pub fn run_fish(input: &Path, ref_path: &Path, out_prefix: &Path, params: &FishParams) -> Result<FishSummary> {
+    params.progress.plan(&fish_phases(!params.bait.is_empty()));
+    params.progress.finish(run_fish_inner(input, ref_path, out_prefix, params))
+}
+
+fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &FishParams) -> Result<FishSummary> {
+    let progress = &params.progress;
     let t0 = Instant::now();
     crate::translate::ensure_parent(out_prefix)?;
 
@@ -1528,6 +1557,8 @@ pub fn run_fish(input: &Path, ref_path: &Path, out_prefix: &Path, params: &FishP
 
     let next = AtomicUsize::new(0);
     let nthreads = params.threads.max(1).min(tasks.len());
+    progress.start("pass");
+    let done_bp = crate::progress::ChunkFrac::new(progress, total);
     let workers: Vec<Result<(HashMap<String, ReadAgg>, InputCounts, HashSet<String>)>> =
         std::thread::scope(|sc| {
             let handles: Vec<_> = (0..nthreads)
@@ -1536,6 +1567,7 @@ pub fn run_fish(input: &Path, ref_path: &Path, out_prefix: &Path, params: &FishP
                     let tasks = &tasks;
                     let next = &next;
                     let names = &contig_name;
+                    let done_bp = &done_bp;
                     sc.spawn(move || -> Result<(HashMap<String, ReadAgg>, InputCounts, HashSet<String>)> {
                         let mut reader = open_indexed(input, ref_path, FIELDS_FISH_FULL)?;
                         let mut rec = bam::Record::new();
@@ -1567,6 +1599,7 @@ pub fn run_fish(input: &Path, ref_path: &Path, out_prefix: &Path, params: &FishP
                                             &mut uncounted,
                                         )?;
                                     }
+                                    done_bp.add((end - start) as u64);
                                 }
                                 Task::Unplaced => {
                                     // `FetchDefinition::Unmapped` (`"*"`) returns
@@ -1620,8 +1653,10 @@ pub fn run_fish(input: &Path, ref_path: &Path, out_prefix: &Path, params: &FishP
     // Bait (optional): lift the input onto assembly + bait and select every read
     // that lands on a bait contig. Independent of the categories above, which
     // were all evaluated on the original `--in` alignment.
+    progress.end();
     let mut bait_summary = None;
     if !params.bait.is_empty() {
+        progress.start("bait_lift");
         let (hits, summary) = run_bait(
             input,
             ref_path,
@@ -1640,7 +1675,9 @@ pub fn run_fish(input: &Path, ref_path: &Path, out_prefix: &Path, params: &FishP
             a.offer(R_BAIT, hit.event);
         }
         bait_summary = Some(summary);
+        progress.end();
     }
+    progress.start("payload");
 
     // Completeness: the region fetch and the `"*"` iterator together must see
     // every record the index counts. htslib index stats are cheap for a BAM and
@@ -1679,6 +1716,8 @@ pub fn run_fish(input: &Path, ref_path: &Path, out_prefix: &Path, params: &FishP
         }
     }
 
+    progress.end();
+    progress.start("output");
     // Rows: one per (read, reason, finding), keeping the largest event.
     let mut rows: Vec<Row> = Vec::new();
     let mut reads = FishReads::default();
@@ -1832,6 +1871,7 @@ pub fn run_fish(input: &Path, ref_path: &Path, out_prefix: &Path, params: &FishP
         writeln!(w)?;
         w.flush()?;
     }
+    progress.end();
     Ok(summary)
 }
 

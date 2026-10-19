@@ -11,8 +11,13 @@ cramhook fish --in old.cram --ref asm.fa --out-prefix P [--threads N] [--linear 
   [--no-unmapped] [--no-clips] [--no-indels] [--no-linked] \
   [--locus [--locus-flank 5000]] [--bait bait.fa] [--bait-min-input-mb MB] \
   [--bait-records any|primary] \
-  [--clip-min-len 50] [--indel-min-len 50] [--indel-merge-gap 50] [--indel-piece-min 10]
+  [--clip-min-len 50] [--indel-min-len 50] [--indel-merge-gap 50] [--indel-piece-min 10] \
+  [--progress]
 ```
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--progress` | off | machine-readable progress on stderr, one JSON object per line (phases `pass`, `bait_lift` with `--bait`, `payload`, `output`); see [output-format.md](output-format.md#progress-stream---progress) |
 
 ## Selection
 

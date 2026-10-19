@@ -23,9 +23,10 @@ use std::os::unix::io::AsRawFd;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
 use rust_htslib::bam::record::Aux;
@@ -37,6 +38,7 @@ use crate::contract::{
 };
 use crate::diff::{Diff, Preset, compute_diff_with, write_outputs};
 use crate::fasta::{Fasta, ensure_fai};
+use crate::progress::Progress;
 use crate::version::versioned;
 use crate::translate::{
     Ctx, Fallback, LiftSink, Params, PassOutcome, Reason, Stats, TranslateConfig, build_output_header,
@@ -128,6 +130,7 @@ fn spawn_reader(
     new_names: Vec<String>,
     xl_tag: bool,
     shared_err: SharedError,
+    remapped: Option<(Arc<AtomicU64>, mpsc::Sender<()>)>,
 ) -> JoinHandle<Result<RemapResult>> {
     let fd = mm_stdout.as_raw_fd();
     thread::spawn(move || {
@@ -155,6 +158,9 @@ fn spawn_reader(
                 if rec.flags() & (0x100 | 0x800) == 0 {
                     primary_count += 1;
                     primary_names.insert(rec.qname().to_vec());
+                    if let Some((r, _)) = &remapped {
+                        r.store(primary_count, Ordering::Relaxed);
+                    }
                 }
                 writer.lock().unwrap().write(&rec)?;
             }
@@ -587,6 +593,7 @@ struct Common<'a> {
     cram_input: bool,
     /// Resolved divergence threshold (`--max-de` or the preset default).
     max_de: f64,
+    progress: &'a Progress,
 }
 
 impl Common<'_> {
@@ -639,11 +646,28 @@ fn run_session(
     }
     let writer = Arc::new(Mutex::new(writer));
 
-    // Reader thread (owns minimap2's stdout).
+    // Reader thread (owns minimap2's stdout). With `--progress` it also counts
+    // the remapped primary records for the drain fraction.
     let shared_err: SharedError = Arc::new(Mutex::new(None));
+    // The thread drops the sender when it exits, which wakes the drain loop.
+    let (remapped, drained) = if common.progress.is_on() {
+        let (tx, rx) = mpsc::channel::<()>();
+        let n = Arc::new(AtomicU64::new(0));
+        (Some((n, tx)), Some(rx))
+    } else {
+        (None, None)
+    };
+    let remapped_count = remapped.as_ref().map(|(n, _)| n.clone());
     let new_names: Vec<String> = common.new_fai.iter().map(|(n, _)| n.clone()).collect();
     let thread = match children.mm_stdout.take() {
-        Some(out) => spawn_reader(out, writer.clone(), new_names, common.tcfg.xl_tag, shared_err.clone()),
+        Some(out) => spawn_reader(
+            out,
+            writer.clone(),
+            new_names,
+            common.tcfg.xl_tag,
+            shared_err.clone(),
+            remapped,
+        ),
         None => {
             let err = fail(common, &mut children, None, anyhow!("missing minimap2 stdout"));
             return Err(err);
@@ -670,6 +694,7 @@ fn run_session(
     };
 
     // Run the pass.
+    common.progress.start("translate_pass");
     let t_pass = Instant::now();
     let pass = match &mode {
         RunMode::Normal { preset, diff } => {
@@ -682,7 +707,7 @@ fn run_session(
                 cfg: common.tcfg,
                 thr: common.max_de,
             };
-            run_translate_pass(reader, sink, ctx, *preset, t_pass)
+            run_translate_pass(reader, sink, ctx, *preset, t_pass, common.progress)
         }
         RunMode::AllDefer { reason, .. } => {
             let ctx = Ctx {
@@ -698,7 +723,7 @@ fn run_session(
             // record-level contract so a real violation takes precedence.
             let validate = reason.is_none();
             let defer_reason = if validate { Reason::TinyInput } else { Reason::Contract };
-            run_all_defer(reader, sink, ctx, reason.clone(), defer_reason, validate, t_pass)
+            run_all_defer(reader, sink, ctx, reason.clone(), defer_reason, validate, t_pass, common.progress)
         }
     };
     let pass = match pass {
@@ -720,6 +745,7 @@ fn run_session(
     }
 
     let mut stats = pass.stats;
+    common.progress.end();
     stats.timings_s.diff = common.diff_s;
     stats.timings_s.translate_pass = pass_s;
     stats.timings_s.stream = pass_s;
@@ -727,8 +753,16 @@ fn run_session(
         stats.preset = preset.minimap2_name().to_string();
     }
 
-    // Drain + close.
+    // Drain + close. With `--progress`, poll the reader thread so the drain
+    // reports remapped / deferred reads.
+    common.progress.start("writer_drain");
     let t_drain = Instant::now();
+    if let (Some(n), Some(rx)) = (&remapped_count, &drained) {
+        let deferred = stats.deferred_reads.max(1) as f64;
+        while let Err(mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(Duration::from_millis(50)) {
+            common.progress.update(n.load(Ordering::Relaxed) as f64 / deferred);
+        }
+    }
     let remap = match thread.join() {
         Ok(Ok(r)) => r,
         Ok(Err(e)) => return Err(fail(common, &mut children, None, e)),
@@ -737,10 +771,12 @@ fn run_session(
         }
     };
     stats.timings_s.writer_drain = t_drain.elapsed().as_secs_f64();
+    common.progress.end();
     drop(writer);
     drop(children.sort_stdin.take());
 
     // Reap and check exit codes.
+    common.progress.start("sort_index");
     let t_sort = Instant::now();
     let (mm_status, sort_status) = children.wait();
     stats.timings_s.sort_index = t_sort.elapsed().as_secs_f64();
@@ -798,6 +834,7 @@ fn run_session(
         return Err(e);
     }
 
+    common.progress.end();
     stats.timings_s.total = common.t0.elapsed().as_secs_f64();
     stats.timings_s.children_cpu = children_cpu_s();
     stats.params = Params::new(common.tcfg, common.max_de);
@@ -939,6 +976,9 @@ pub(crate) fn best_effort_preset(header_text: &str) -> Option<Preset> {
     None
 }
 
+/// `--progress` phases of `lift`, in order (the `timings_s` names).
+pub const LIFT_PHASES: [&str; 4] = ["diff", "translate_pass", "writer_drain", "sort_index"];
+
 /// Run `cramhook lift`. Returns the stats.
 #[allow(clippy::too_many_arguments)]
 pub fn lift(
@@ -951,6 +991,63 @@ pub fn lift(
     tcfg: &TranslateConfig,
     opts: &LiftOptions,
     preset_override: Option<Preset>,
+) -> Result<Stats> {
+    lift_with_progress(
+        in_cram,
+        old_ref,
+        new_ref,
+        out,
+        stats_path,
+        threads,
+        tcfg,
+        opts,
+        preset_override,
+        &Progress::off(),
+    )
+}
+
+/// [`lift`] with a `--progress` reporter.
+#[allow(clippy::too_many_arguments)]
+pub fn lift_with_progress(
+    in_cram: &Path,
+    old_ref: &Path,
+    new_ref: &Path,
+    out: &Path,
+    stats_path: Option<&Path>,
+    threads: usize,
+    tcfg: &TranslateConfig,
+    opts: &LiftOptions,
+    preset_override: Option<Preset>,
+    progress: &Progress,
+) -> Result<Stats> {
+    progress.plan(&LIFT_PHASES);
+    let r = lift_inner(
+        in_cram,
+        old_ref,
+        new_ref,
+        out,
+        stats_path,
+        threads,
+        tcfg,
+        opts,
+        preset_override,
+        progress,
+    );
+    progress.finish(r)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn lift_inner(
+    in_cram: &Path,
+    old_ref: &Path,
+    new_ref: &Path,
+    out: &Path,
+    stats_path: Option<&Path>,
+    threads: usize,
+    tcfg: &TranslateConfig,
+    opts: &LiftOptions,
+    preset_override: Option<Preset>,
+    progress: &Progress,
 ) -> Result<Stats> {
     let t0 = Instant::now();
     tcfg.validate()?;
@@ -1080,6 +1177,7 @@ pub fn lift(
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("cram")),
         max_de: tcfg.max_de.unwrap_or_else(|| de_threshold(effective_preset)),
+        progress,
     };
 
     let empty_diff = Diff::default();
@@ -1097,6 +1195,7 @@ pub fn lift(
         &staged_crai,
     )?;
 
+    progress.start("diff");
     let (diff, diff_s) = if contract_reason.is_none() && !tiny_input {
         let t = Instant::now();
         match compute_diff_with(
@@ -1127,6 +1226,7 @@ pub fn lift(
     } else {
         (empty_diff, 0.0)
     };
+    progress.end();
     let common = Common { diff_s, ..common };
 
     // Normal or all-defer first attempt. All-defer covers both a contract
@@ -1176,7 +1276,7 @@ pub fn lift(
     // Contract reason wins: only record (and announce) the fallback when the run
     // did not turn into a contract fallback.
     if tiny_input && stats.contract_ok {
-        eprintln!(
+        crate::note!(
             "tiny input: {} bytes < {} bytes (preset {}); remapping all reads",
             input_bytes,
             threshold_bytes,

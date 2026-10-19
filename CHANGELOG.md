@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--progress` on `lift`, `qc` and `fish`: machine-readable progress on stderr, one JSON object per
+  line (`plan`, per-phase `start`/`update`/`end` with `frac`, `done` or `error`; stream version 1,
+  see [docs/output-format.md](docs/output-format.md#progress-stream---progress)). Off by default;
+  without it the outputs are unchanged.
+
 ## [0.1.0] - 2026-10-19
 
 ### Added
