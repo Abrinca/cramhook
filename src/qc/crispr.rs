@@ -7,7 +7,7 @@
 //! Detection is split in two so it overlaps the scan: `start_crispr` runs the
 //! FASTA read and `pilercr-rs` on its own thread while the scan and the
 //! circularity pass run, and `finish_crispr` joins it and maps the arrays onto
-//! the scanned contigs.
+//! the scanned contigs with upstream's `pilercr_rs::locate`.
 
 use std::fs::File;
 use std::io::BufReader;
@@ -15,7 +15,7 @@ use std::path::Path;
 use std::thread::JoinHandle;
 
 use anyhow::{Context, Result};
-use pilercr_rs::{Array, Config, Sequence};
+use pilercr_rs::{Array, Config, Sequence, locate};
 
 use super::Region;
 use crate::note;
@@ -124,88 +124,31 @@ pub(crate) fn finish_crispr(
 }
 
 /// Map one detected array onto a scanned contig.
+///
+/// Coordinates, copy count and the mean repeat/spacer lengths come from
+/// `pilercr_rs::locate`, which validates the array (alignment rows, contig
+/// bounds) the same way the crate's report writer does.
 fn map_array(seq: &Sequence, a: &Array, scan: &ScanResult) -> Result<CrisprArray, String> {
-    let (ci, local, len) = array_interval(seq, a)?;
-    let name = seq.contigs[ci].label.split_whitespace().next().unwrap_or("");
+    let loc = locate(seq, a)?;
+    let name = seq.contigs[loc.contig]
+        .label
+        .split_whitespace()
+        .next()
+        .unwrap_or("");
     let tid = scan
         .contigs
         .iter()
         .position(|c| c.name == name)
         .ok_or_else(|| format!("array at {} is on {name:?}, which is not in the alignment", a.pos))?;
-    let n = a.repeats.len();
-    let repeat = a.repeats.iter().map(|r| ungapped(r)).sum::<usize>() / n;
-    let spacer = a.spacers[..n - 1].iter().map(Vec::len).sum::<usize>() / (n - 1).max(1);
     Ok(CrisprArray {
         tid,
-        start: local as u64,
-        end: (local + len) as u64,
-        copies: n,
-        repeat,
-        spacer,
+        start: loc.start as u64,
+        end: (loc.start + loc.len) as u64,
+        copies: loc.copies,
+        repeat: loc.repeat_len,
+        spacer: loc.spacer_len,
         consensus: letters(&a.consensus),
     })
-}
-
-/// Map an array's global start to `(contig index, 0-based local start, length)`.
-///
-/// Mirrors `report::location()` in `pilercr-rs`, which is not public in 0.1.0:
-/// the same row validation, and the length is the sum of the non-gap repeat
-/// characters plus the first `n - 1` spacers (the terminal right-flank spacer
-/// is not part of the array). **Replace this with the upstream helper once it
-/// is exposed.**
-fn array_interval(seq: &Sequence, a: &Array) -> Result<(usize, usize, usize), String> {
-    let ci = seq
-        .contigs
-        .iter()
-        .position(|c| c.start <= a.pos && a.pos < c.start + c.len)
-        .ok_or_else(|| format!("array at {} starts outside a contig", a.pos))?;
-    let n = a.repeats.len();
-    // Same checks as `report::location()` (0.1.0): one repeat row per spacer
-    // and left flank, a non-empty consensus, every row as wide as the aligned
-    // consensus (the array's own aligned sequences) and no all-gap repeat.
-    if n == 0
-        || a.spacers.len() != n
-        || a.left_flanks.len() != n
-        || a.aligned_consensus.is_empty()
-        || a.consensus.is_empty()
-        || a.repeats.iter().any(|r| r.len() != a.aligned_consensus.len() || ungapped(r) == 0)
-    {
-        return Err(format!("array at {} has inconsistent alignment rows", a.pos));
-    }
-    // Every row is taken from the reference, so it must be printable text
-    // (spaces pad the left flanks at contig starts).
-    for row in a
-        .repeats
-        .iter()
-        .chain(&a.spacers)
-        .chain(&a.left_flanks)
-        .chain(std::iter::once(&a.consensus))
-        .chain(std::iter::once(&a.aligned_consensus))
-    {
-        if !row.iter().all(|c| c.is_ascii_graphic() || *c == b' ') {
-            return Err(format!("array at {} contains invalid sequence text", a.pos));
-        }
-    }
-    let length = a
-        .repeats
-        .iter()
-        .map(|r| ungapped(r))
-        .chain(a.spacers[..n - 1].iter().map(Vec::len))
-        .try_fold(0usize, |sum, len| sum.checked_add(len))
-        .ok_or_else(|| format!("array at {} length overflow", a.pos))?;
-    let local = a.pos - seq.contigs[ci].start;
-    if local
-        .checked_add(length)
-        .is_none_or(|end| end > seq.contigs[ci].len)
-    {
-        return Err(format!("array at {} crosses the end of contig {}", a.pos, ci));
-    }
-    Ok((ci, local, length))
-}
-
-/// Non-gap characters of one aligned repeat row.
-fn ungapped(row: &[u8]) -> usize {
-    row.iter().filter(|&&c| c != b'-').count()
 }
 
 /// Consensus letters only: gaps and whitespace removed.
@@ -219,6 +162,7 @@ fn letters(seq: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pilercr_rs::ArrayElement;
     use pilercr_rs::seq::Contig;
 
     /// Two contigs with padding between them: `a` at 0..60, `b` at 64..104.
@@ -235,11 +179,17 @@ mod tests {
     fn array(pos: usize, repeats: &[&[u8]], spacers: &[&[u8]]) -> Array {
         Array {
             pos,
-            repeats: repeats.iter().map(|r| r.to_vec()).collect(),
-            spacers: spacers.iter().map(|s| s.to_vec()).collect(),
-            left_flanks: repeats.iter().map(|_| vec![b' '; 10]).collect(),
             consensus: b"ACGT".to_vec(),
             aligned_consensus: repeats.first().map(|r| r.to_vec()).unwrap_or_default(),
+            elements: repeats
+                .iter()
+                .zip(spacers)
+                .map(|(repeat, spacer)| ArrayElement {
+                    left_flank: vec![b' '; 10],
+                    repeat: repeat.to_vec(),
+                    spacer: spacer.to_vec(),
+                })
+                .collect(),
             ..Array::default()
         }
     }
@@ -267,120 +217,42 @@ mod tests {
     }
 
     #[test]
-    fn global_position_maps_to_the_right_contig() {
-        // Second contig, local offset 4: global 68.
-        let a = array(68, &[b"ACGT", b"ACGT", b"ACGT"], &[b"AAAA", b"CCCC", b"GGGG"]);
-        let (ci, local, len) = array_interval(&sequence(), &a).unwrap();
-        assert_eq!((ci, local, len), (1, 4, 3 * 4 + 2 * 4));
-    }
-
-    #[test]
-    fn length_counts_non_gap_repeat_characters_only() {
-        // Gapped rows: 3, 2 and 4 ungapped bases; spacers 5 and 7.
-        let a = array(0, &[b"AC-G", b"A--G", b"ACGT"], &[b"AAAAA", b"AAAAAAA", b"CC"]);
-        let (_, _, len) = array_interval(&sequence(), &a).unwrap();
-        assert_eq!(len, 3 + 2 + 4 + 5 + 7);
-    }
-
-    #[test]
-    fn array_crossing_a_contig_boundary_is_rejected() {
-        // Starts at local 50 of a 60 bp contig; 3 x 4 bp repeats + 2 x 4 bp
-        // spacers = 20 bp crosses the end.
-        let a = array(50, &[b"ACGT", b"ACGT", b"ACGT"], &[b"AAAA", b"CCCC", b"GGGG"]);
-        let err = array_interval(&sequence(), &a).unwrap_err();
-        assert!(err.contains("crosses"), "{err}");
-    }
-
-    #[test]
     fn unmappable_arrays_are_skipped() {
-        // A crossing array and an array on a contig absent from the alignment
-        // both make `map_array` fail, so detection skips them (with a warning)
-        // instead of failing the run.
+        // Arrays that `locate` rejects (or that sit on a contig absent from the
+        // alignment) make `map_array` fail, so detection skips them (with a
+        // warning) instead of failing the run. Crossing: local 50 of a 60 bp
+        // contig with 3 x 4 bp repeats and 2 x 4 bp spacers = 20 bp. Padding:
+        // 60..64 lies between contigs `a` and `b`.
         let crossing = array(50, &[b"ACGT", b"ACGT", b"ACGT"], &[b"AAAA", b"CCCC", b"GGGG"]);
         assert!(map_array(&sequence(), &crossing, &scan(&["a", "b"])).is_err());
+        let padding = array(61, &[b"ACGT", b"ACGT", b"ACGT"], &[b"AAAA", b"CCCC", b"GGGG"]);
+        assert!(map_array(&sequence(), &padding, &scan(&["a", "b"])).is_err());
+        // A mappable array on a contig absent from the alignment.
         let on_a = array(0, &[b"ACGT", b"ACGT", b"ACGT"], &[b"AAAA", b"CCCC", b"GGGG"]);
         assert!(map_array(&sequence(), &on_a, &scan(&[])).is_err());
     }
 
     #[test]
-    fn array_starting_in_padding_is_rejected() {
-        let a = array(61, &[b"ACGT", b"ACGT", b"ACGT"], &[b"AAAA", b"CCCC", b"GGGG"]);
-        assert!(array_interval(&sequence(), &a).is_err());
-    }
-
-    /// `report::location()` rejects these rows; `array_interval` must too, so
-    /// the mapping never derives a length from a broken alignment.
-    #[test]
-    fn malformed_alignment_rows_are_rejected() {
-        let base = array(0, &[b"ACGT", b"ACGT", b"ACGT"], &[b"AAAA", b"CCCC", b"GGGG"]);
-        let ok = array_interval(&sequence(), &base).unwrap();
-
-        // A repeat row with no ungapped bases has no length to add.
-        let mut a = base.clone();
-        a.repeats[1] = b"----".to_vec();
-        let err = array_interval(&sequence(), &a).unwrap_err();
-        assert!(err.contains("inconsistent alignment rows"), "{err}");
-
-        // Every repeat row must be as wide as the aligned consensus.
-        let mut a = base.clone();
-        a.repeats[2].truncate(3);
-        let err = array_interval(&sequence(), &a).unwrap_err();
-        assert!(err.contains("inconsistent alignment rows"), "{err}");
-
-        // Empty consensus or aligned consensus.
-        let mut a = base.clone();
-        a.consensus.clear();
-        assert!(array_interval(&sequence(), &a).is_err());
-        let mut a = base.clone();
-        a.aligned_consensus.clear();
-        assert!(array_interval(&sequence(), &a).is_err());
-
-        // One left flank per repeat (and per spacer).
-        let mut a = base.clone();
-        a.left_flanks.pop();
-        let err = array_interval(&sequence(), &a).unwrap_err();
-        assert!(err.contains("inconsistent alignment rows"), "{err}");
-
-        // One spacer per repeat.
-        let mut a = base.clone();
-        a.spacers.pop();
-        assert!(array_interval(&sequence(), &a).is_err());
-
-        // No repeats at all.
-        let mut a = base.clone();
-        a.repeats.clear();
-        assert!(array_interval(&sequence(), &a).is_err());
-
-        // Rows come from the reference, so control bytes are invalid text.
-        let mut a = base.clone();
-        a.repeats[0] = b"AC\nT".to_vec();
-        let err = array_interval(&sequence(), &a).unwrap_err();
-        assert!(err.contains("invalid sequence text"), "{err}");
-
-        assert_eq!(ok, (0, 0, 3 * 4 + 2 * 4));
-    }
-
-    /// The last spacer is the right flank up to the contig end, so an array
-    /// ending exactly at the contig end is valid even though that spacer would
-    /// extend past it.
-    #[test]
-    fn terminal_right_flank_at_the_contig_end_is_valid() {
-        // Contig `a` is 0..60; start at 40 with 3 x 4 bp repeats and two
-        // internal 4 bp spacers = 20 bp, ending exactly at 60.
-        let a = array(40, &[b"ACGT", b"ACGT", b"ACGT"], &[b"AAAA", b"AAAA", b"GGGGGGGGGG"]);
-        assert_eq!(array_interval(&sequence(), &a).unwrap(), (0, 40, 20));
-        // Same array one base further right crosses the end.
-        let a = array(41, &[b"ACGT", b"ACGT", b"ACGT"], &[b"AAAA", b"AAAA", b"GGGGGGGGGG"]);
-        assert!(array_interval(&sequence(), &a).unwrap_err().contains("crosses"));
+    fn inconsistent_alignment_rows_are_skipped() {
+        // One repeat row narrower than the aligned consensus: `locate` rejects
+        // it, so the array is skipped rather than mapped with a wrong length.
+        let mut a = array(0, &[b"ACGT", b"ACGT", b"ACGT"], &[b"AAAA", b"CCCC", b"GGGG"]);
+        a.elements[2].repeat.truncate(3);
+        assert!(map_array(&sequence(), &a, &scan(&["a", "b"])).is_err());
     }
 
     #[test]
     fn consensus_letters_drop_gaps_and_whitespace() {
         assert_eq!(letters(b"AC-GT"), "ACGT");
         assert_eq!(letters(b"A C\tG\n"), "ACG");
-        let mut a = array(0, &[b"AC-G", b"ACGT", b"ACGT"], &[b"AAAA", b"CCCC", b"GGGG"]);
-        a.aligned_consensus = a.repeats[1].clone();
-        assert_eq!(letters(&a.consensus), letters(&a.aligned_consensus));
+    }
+
+    #[test]
+    fn global_position_maps_to_the_right_contig() {
+        // Second contig, local offset 4: global 68.
+        let a = array(68, &[b"ACGT", b"ACGT", b"ACGT"], &[b"AAAA", b"CCCC", b"GGGG"]);
+        let mapped = map_array(&sequence(), &a, &scan(&["a", "b"])).unwrap();
+        assert_eq!((mapped.tid, mapped.start, mapped.end), (1, 4, 24));
     }
 
     #[test]

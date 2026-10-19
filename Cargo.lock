@@ -605,9 +605,13 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pilercr-rs"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f4ce5220cd0b939eb3b03cd0c9e0847b0ba4e833fd3142e893e4f63d35128d4"
+checksum = "0c098f00f4546cffa9ddfecfc8ac3484528f7e5eefb9928c6a049b6efc8497f9"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "pkg-config"
