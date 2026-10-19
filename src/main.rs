@@ -74,7 +74,7 @@ struct QcArgs {
     /// Assembly FASTA (the alignment reference).
     #[arg(long)]
     r#ref: PathBuf,
-    /// Output prefix; writes `<prefix>.{vcf,bed,json,depth.bedgraph}` (+ `.candidates.tsv`).
+    /// Output prefix; writes `<prefix>.{vcf,bed,json,depth.bedgraph,gc.bedgraph}` (+ `.candidates.tsv`).
     #[arg(long)]
     out_prefix: PathBuf,
     /// Read preset (thresholds); default: from the minimap2 @PG line.
@@ -206,6 +206,9 @@ struct QcArgs {
     /// Clip hotspots: skip clusters within this of a contig end.
     #[arg(long, default_value_t = 100)]
     clip_edge: u32,
+    /// GC track: window length in bp; 0 disables `<prefix>.gc.bedgraph`.
+    #[arg(long, default_value_t = 100)]
+    gc_window: u32,
     /// Depth bands: window length in bp.
     #[arg(long, default_value_t = 500)]
     depth_window: u32,
@@ -855,6 +858,7 @@ fn run_qc_cmd(a: QcArgs) -> Result<()> {
         clip_high_s: a.clip_high_s,
         clip_pair_dist: a.clip_pair_dist,
         clip_edge: a.clip_edge,
+        gc_window: a.gc_window,
         depth_window: a.depth_window,
         depth_low: a.depth_low,
         depth_half_min: a.depth_half_min,

@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cramhook qc`: tiered site and region calls (`red`/`orange`/`yellow`/`gray`) where the reads
   disagree with the assembly, as VCF, BED, findings BED, bedGraph, candidates TSV, haplotypes TSV
   and JSON.
+- `cramhook qc`: `q.gc.bedgraph`, a GC-fraction track in fixed `--gc-window` windows (default
+  100 bp; `0` disables the file), computed from the `--ref` FASTA qc already loads. Non-ACGT
+  bases are excluded from both counts; the JSON gains `gc_window`.
 - `cramhook fish`: extract reads behind the calls (clips, large indels, unmapped, linked, locus),
   including `--bait` (lift against assembly + bait sequence) and `--bait-records any|primary`.
 - Debug commands `cramhook diff` (identity blocks, taint, novel regions, junctions) and
@@ -33,4 +36,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Output format
 
-- Output format version 1 (format_version in JSON, ##format_version in VCF).
+- Output format version 2 (format_version in JSON, ##format_version in VCF): version 2 adds the
+  qc `P.gc.bedgraph` file and the qc JSON `gc_window` key. Version 1 was the initial format.

@@ -1,5 +1,5 @@
 {
-  "format_version": 1,
+  "format_version": 2,
   "analysis_type": "cramhook qc",
   "version": "0.1.0",
   "preset": "lr:hq",
@@ -9,6 +9,7 @@
   },
   "indel_min_af": 0.15,
   "lowcov_abs": 20,
+  "gc_window": 100,
   "reads": {
     "total": 6090,
     "mapped": 6086,
@@ -1817,6 +1818,7 @@
     "clip_high_s": 100.0,
     "clip_pair_dist": 50,
     "clip_edge": 100,
+    "gc_window": 100,
     "depth_window": 500,
     "depth_low": 0.25,
     "depth_half_min": 0.35,

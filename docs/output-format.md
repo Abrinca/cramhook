@@ -5,14 +5,14 @@ by igv.js (and any genome browser); the JSON files are meant for programs.
 
 ## Format version
 
-All outputs share one format version number, currently **1**:
+All outputs share one format version number, currently **2**:
 
-- every JSON file carries `"format_version": 1` as its first key;
-- the qc VCF carries a `##format_version=1` header line;
+- every JSON file carries `"format_version": 2` as its first key;
+- the qc VCF carries a `##format_version=2` header line;
 - BED, bedGraph and TSV files share the same version number but carry no version line of their own
   (BED and TSV files start with one `#`-prefixed or plain column-name line; the bedGraph has none).
 
-Any change to fields, keys or columns bumps the version and is recorded in
+Any change to fields, keys, columns or the set of output files bumps the version and is recorded in
 [CHANGELOG.md](../CHANGELOG.md). Coordinates in BED, bedGraph and TSV files are 0-based, half-open;
 VCF `POS` is 1-based. One exception: the `sa` column of `P.fish.tsv` copies positions from the SAM
 `SA` tag unchanged, so they are **1-based** (the `pos` column of the same file is 0-based).
@@ -26,6 +26,7 @@ VCF `POS` is 1-based. One exception: the `sa` column of `P.fish.tsv` copies posi
 | `qc` | `P.findings.bed` | [BED, findings](#pfindingsbed) |
 | `qc` | `P.json` | [JSON](#pjson) |
 | `qc` | `P.depth.bedgraph` | [bedGraph](#pdepthbedgraph) |
+| `qc` | `P.gc.bedgraph` | [bedGraph](#pgcbedgraph) |
 | `qc` | `P.candidates.tsv` (with `--candidates`) | [TSV](#pcandidatestsv) |
 | `qc` | `P.haplotypes.tsv` | [TSV](#phaplotypestsv) |
 | `fish` | `P.fastq.gz` | [FASTQ](#pfastqgz) |
@@ -58,7 +59,7 @@ Written with `--stats`: counts, deferrals by reason, parameters, per-phase timin
 
 | key | contents |
 |---|---|
-| `format_version` | 1 |
+| `format_version` | 2 |
 | `contract_ok`, `contract_reason` | input-contract result; the reason is `null` when it passed |
 | `preset` | `map-hifi` or `lr:hq` |
 | `records_in` | `primary`, `supplementary`, `secondary`, `unmapped` records read |
@@ -168,12 +169,12 @@ All top-level keys, in order:
 
 | key | contents |
 |---|---|
-| `format_version` | 1 |
+| `format_version` | 2 |
 | `analysis_type` | `cramhook qc` |
 | `version` | tool version |
 | `preset` | `map-hifi` or `lr:hq` |
 | `inputs` | `in`, `ref` paths |
-| `indel_min_af`, `lowcov_abs` | effective indel AF prefilter and absolute low-coverage depth |
+| `indel_min_af`, `lowcov_abs`, `gc_window` | effective indel AF prefilter, absolute low-coverage depth and the GC track window in bp (`0` = no `P.gc.bedgraph`) |
 | `reads` | `total`, `mapped`, `unmapped`, `unmapped_fraction`, `bases_total`, `bases_mapped`, `bases_unmapped`, `mean_aligned_span`, `records` (`primary`, `supplementary`, `secondary`, `duplicate`, `qcfail`, `unmapped`, `hard_clipped`) |
 | `assembly` | `length_bp`, `contigs`, `assessable_bp`, `assessable_fraction`, `low_coverage_bp`, `low_coverage_fraction`, `confident_bp` |
 | `alerts` | `red`, `orange`, `yellow`, `gray`, `lowcov` (same tiers) and `by_type` (the same counts per site type and region label) |
@@ -196,6 +197,17 @@ Per-position **aligned-base** depth over the assembly, run-length encoded and 0-
 with a base at the position, deletions not counted — the same coverage IGV shows and the
 `samtools depth -a` default. qc's own signals and INFO `DP` stay on the wider depth that also counts
 reads whose only contribution is a deletion. Columns contig, start, end, depth; no header line.
+
+### P.gc.bedgraph
+
+GC fraction over the assembly in fixed, non-overlapping windows of `--gc-window` bp (default
+100), computed from the `--ref` FASTA qc already loads. One row per window, 0-based half-open:
+`contig`, start, end, `gc` = (G+C)/(A+C+G+T) over the window as a fraction with 4 decimals
+(`0.5120`). Contigs are in the reference/header order of the depth track; the last window of a
+contig is shorter (end = contig length), and a contig shorter than the window gets one short
+window. Bases that are not A/C/G/T (`N`, ambiguity codes) are excluded from both numerator and
+denominator, and a window with no A/C/G/T is `0.0000`. No header line. `--gc-window 0` writes no
+file.
 
 ### P.candidates.tsv
 
@@ -236,7 +248,7 @@ thresholds used, and timing. Top-level keys:
 
 | key | contents |
 |---|---|
-| `format_version` | 1 |
+| `format_version` | 2 |
 | `reads` | `reads`, `bp` (distinct selected reads, summed length) and `by_reason` (per reason: `reads`, `bp`; a read can count under more than one) |
 | `records` | input record counts: `total`, `primary`, `supplementary`, `secondary`, `duplicate`, `qcfail`, `unmapped`, `mapped_bp`, `unmapped_bp` |
 | `params` | `scope`, `min_tier`, `finding_pad`, `unmapped`, `clips`, `indels`, `linked`, `bait`, `locus`, `locus_flank`, `clip_min_len`, `indel_min_len`, `indel_merge_gap`, `indel_piece_min` |

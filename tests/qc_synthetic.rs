@@ -260,11 +260,11 @@ fn qc_planted_events_and_thread_identity() {
 
     // JSON.
     let json_text = std::fs::read_to_string(p1.with_extension("json")).unwrap();
-    assert!(json_text.starts_with("{\n  \"format_version\": 1,"), "format_version is not the first JSON key:\n{json_text}");
+    assert!(json_text.starts_with("{\n  \"format_version\": 2,"), "format_version is not the first JSON key:\n{json_text}");
     let j: serde_json::Value = serde_json::from_str(&json_text).unwrap();
-    assert_eq!(j["format_version"], 1);
+    assert_eq!(j["format_version"], 2);
     let vcf_text = std::fs::read_to_string(p1.with_extension("vcf")).unwrap();
-    assert!(vcf_text.starts_with("##fileformat=VCFv4.2\n##format_version=1\n"), "VCF format_version header missing:\n{vcf_text}");
+    assert!(vcf_text.starts_with("##fileformat=VCFv4.2\n##format_version=2\n"), "VCF format_version header missing:\n{vcf_text}");
     // Alerts: VCF site calls by type plus tiered BED regions.
     let bt = &j["alerts"]["by_type"];
     assert_eq!(bt["SNP"]["red"], 1);
@@ -290,7 +290,7 @@ fn qc_planted_events_and_thread_identity() {
     assert!(snp_fit["p"].as_f64().unwrap() > 1e-4 && snp_fit["p"].as_f64().unwrap() < 0.02, "{snp_fit}");
 
     // Thread / chunking identity.
-    for suf in ["vcf", "bed", "candidates.tsv", "depth.bedgraph"] {
+    for suf in ["vcf", "bed", "candidates.tsv", "depth.bedgraph", "gc.bedgraph"] {
         let a = std::fs::read(dir.join(format!("t1/out.{suf}"))).unwrap();
         let b = std::fs::read(dir.join(format!("t8/out.{suf}"))).unwrap();
         assert!(a == b, "{suf} differs between --threads 1 and 8");
@@ -442,7 +442,7 @@ fn qc_low_coverage_region_and_filter() {
     // VCF/BED headers embed different reference paths; compare the bodies).
     assert_eq!(vcf, vcf8, "VCF body differs between --threads 1 and 8");
     assert_eq!(bed, bed8, "BED differs between --threads 1 and 8");
-    for suf in ["candidates.tsv", "depth.bedgraph", "findings.bed"] {
+    for suf in ["candidates.tsv", "depth.bedgraph", "gc.bedgraph", "findings.bed"] {
         let a = std::fs::read(base.join(format!("lowcov_t1/out.{suf}"))).unwrap();
         let b = std::fs::read(base.join(format!("lowcov_t8/out.{suf}"))).unwrap();
         assert!(a == b, "{suf} differs between --threads 1 and 8");
@@ -1512,6 +1512,130 @@ fn qc_bedgraph_aligned_depth_excludes_deletions() {
     // The deletion is still called (deletions count toward DP / support).
     assert!(cands.iter().any(|c| c["type"] == "DEL" && c["dp"] == "20"), "{cands:?}");
     assert!(vcf.iter().any(|v| v[7].contains("TYPE=DEL")), "{vcf:?}");
+}
+
+/// `qc.gc.bedgraph`: one row per fixed window, 0-based half-open, contigs in
+/// the BAM header order (the depth track's order), the last window short, and
+/// non-ACGT bases excluded from both counts (a window that is all `N` is
+/// 0.0000). `--gc-window 0` writes no file. Values match a direct computation
+/// from the FASTA.
+#[test]
+fn qc_gc_bedgraph() {
+    let dir = workdir("gc_bedgraph");
+    let a = random_ref(600, 404);
+    let mut b = random_ref(250, 505);
+    for x in &mut b[100..200] {
+        *x = b'N';
+    }
+    // FASTA order is chrB, chrA; the BAM header (and both bedGraphs) is
+    // chrA, chrB.
+    let fa = dir.join("ref.fa");
+    let mut text = String::new();
+    for (name, seq) in [("chrB", &b), ("chrA", &a)] {
+        text.push('>');
+        text.push_str(name);
+        text.push('\n');
+        text.push_str(std::str::from_utf8(seq).unwrap());
+        text.push('\n');
+    }
+    std::fs::write(&fa, text).unwrap();
+    // ">chrB\n" (6) + 250 bp + newline = chrA header at 257, its sequence at 263.
+    std::fs::write(dir.join("ref.fa.fai"), "chrB\t250\t6\t250\t251\nchrA\t600\t263\t600\t601\n").unwrap();
+
+    let mut header = Header::new();
+    header.push_record(HeaderRecord::new(b"HD").push_tag(b"VN", "1.6").push_tag(b"SO", "coordinate"));
+    header.push_record(HeaderRecord::new(b"SQ").push_tag(b"SN", "chrA").push_tag(b"LN", 600));
+    header.push_record(HeaderRecord::new(b"SQ").push_tag(b"SN", "chrB").push_tag(b"LN", 250));
+    let bam = dir.join("reads.bam");
+    let mut w = Writer::from_path(&bam, &header, Format::Bam).unwrap();
+    let cig = CigarString(vec![Cigar::Match(100)]);
+    for (tid, seq) in [(0i32, &a), (1i32, &b)] {
+        for i in 0..6 {
+            let mut rec = Record::new();
+            rec.set(format!("r{tid}_{i}").as_bytes(), Some(&cig), &seq[100..200], &vec![30u8; 100]);
+            rec.set_tid(tid);
+            rec.set_pos(100);
+            rec.set_mapq(60);
+            rec.set_flags(if i % 2 == 1 { 0x10 } else { 0 });
+            rec.set_mtid(-1);
+            rec.set_mpos(-1);
+            w.write(&rec).unwrap();
+        }
+    }
+    drop(w);
+    bam::index::build(&bam, None, bam::index::Type::Bai, 1).unwrap();
+
+    let prefix = dir.join("out");
+    run_qc(&bam, &fa, &prefix, &params(1, None)).unwrap();
+    let gc_text = std::fs::read_to_string(prefix.with_extension("gc.bedgraph")).unwrap();
+    let rows: Vec<(String, u64, u64, f64)> = gc_text
+        .lines()
+        .map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            assert_eq!(f.len(), 4, "row is not `contig start end gc`: {l:?}");
+            (f[0].to_string(), f[1].parse().unwrap(), f[2].parse().unwrap(), f[3].parse().unwrap())
+        })
+        .collect();
+    // No header line; same contig order as the depth bedGraph.
+    let order = |t: &str| {
+        let mut v: Vec<String> = Vec::new();
+        for l in t.lines() {
+            let c = l.split('\t').next().unwrap().to_string();
+            if v.last() != Some(&c) {
+                v.push(c);
+            }
+        }
+        v
+    };
+    let depth_text = std::fs::read_to_string(prefix.with_extension("depth.bedgraph")).unwrap();
+    assert_eq!(order(&gc_text), order(&depth_text));
+    assert_eq!(order(&gc_text), ["chrA".to_string(), "chrB".to_string()]);
+
+    // Per contig: start at 0, no gaps, end == contig length, values in [0, 1].
+    for (name, len) in [("chrA", 600u64), ("chrB", 250u64)] {
+        let rs: Vec<_> = rows.iter().filter(|r| r.0 == name).collect();
+        assert!(!rs.is_empty(), "{gc_text}");
+        assert_eq!(rs[0].1, 0, "{name}: {gc_text}");
+        for pair in rs.windows(2) {
+            assert_eq!(pair[0].2, pair[1].1, "{name}: gap/overlap in {gc_text}");
+        }
+        assert_eq!(rs.last().unwrap().2, len, "{name}: {gc_text}");
+        assert!(rs.iter().all(|r| r.2 - r.1 == 100 || r.2 == len), "{name}: {gc_text}");
+        assert!(rs.iter().all(|r| (0.0..=1.0).contains(&r.3)), "{name}: {gc_text}");
+    }
+
+    // A known region matches a direct FASTA computation, formatted to 4 decimals.
+    let direct_gc = |s: &[u8]| {
+        let (gc, acgt) = s.iter().fold((0u64, 0u64), |(g, n), &b| match b.to_ascii_uppercase() {
+            b'G' | b'C' => (g + 1, n + 1),
+            b'A' | b'T' => (g, n + 1),
+            _ => (g, n),
+        });
+        if acgt == 0 { 0.0 } else { gc as f64 / acgt as f64 }
+    };
+    let want = direct_gc(&a[0..100]);
+    let line = gc_text.lines().find(|l| l.starts_with("chrA\t0\t100\t")).unwrap_or_else(|| panic!("{gc_text}"));
+    assert_eq!(line.split('\t').nth(3).unwrap(), format!("{want:.4}"), "{gc_text}");
+    let want = direct_gc(&b[200..250]);
+    assert_eq!(
+        gc_text.lines().find(|l| l.starts_with("chrB\t200\t250\t")).unwrap_or_else(|| panic!("{gc_text}")),
+        format!("chrB\t200\t250\t{want:.4}")
+    );
+    // All-N window: no A/C/G/T -> 0.0000.
+    assert!(gc_text.lines().any(|l| l == "chrB\t100\t200\t0.0000"), "{gc_text}");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(prefix.with_extension("json")).unwrap()).unwrap();
+    assert_eq!(json["gc_window"], 100, "{json}");
+    assert_eq!(json["params"]["gc_window"], 100, "{json}");
+
+    // --gc-window 0: no file.
+    let p0 = dir.join("nogc/out");
+    run_qc(&bam, &fa, &p0, &QcParams { gc_window: 0, ..params(1, None) }).unwrap();
+    assert!(!p0.with_extension("gc.bedgraph").exists());
+    let j0: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(p0.with_extension("json")).unwrap()).unwrap();
+    assert_eq!(j0["gc_window"], 0, "{j0}");
 }
 
 /// Gray tier (homopolymer indels): a *minority / strand-biased* yellow INS/DEL

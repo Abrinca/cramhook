@@ -87,8 +87,8 @@ plus the BED; `qc_clip_hotspot_junction_and_length_filter`,
 `qc_bedgraph_aligned_depth_excludes_deletions` and
 `qc_misjoin_clip_hotspot_and_finding` compare the BED (and `findings.bed`) plus
 the normalised JSON; the main `qc_planted_events_and_thread_identity` compares
-the VCF, BED, `candidates.tsv` and `depth.bedgraph` byte for byte plus the
-normalised JSON.
+the VCF, BED, `candidates.tsv`, `depth.bedgraph` and `gc.bedgraph` byte for byte
+plus the normalised JSON.
 
 **Script self-tests** (`--self-test` on each script; see §9):
 

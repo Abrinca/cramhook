@@ -25,9 +25,9 @@ Cases, provenance and thresholds: [testdata/README.md](../testdata/README.md).
 
 ## Tests
 
-`pixi run cargo test --release` runs 452 tests (3 ignored): 315 unit, 11 `diff_synthetic`,
+`pixi run cargo test --release` runs 462 tests (3 ignored): 321 unit, 11 `diff_synthetic`,
 25 `lift_synthetic`, 10 `lift_junction`, 1 `lift_roundtrip` (+1 ignored), 7 `translate_synthetic`
-(+1 ignored), 26 `qc_synthetic`, 17 `qc_circularity`, 4 `qc_linkage`, 31 `fish` and 5 `progress`.
+(+1 ignored), 27 `qc_synthetic`, 17 `qc_circularity`, 4 `qc_linkage`, 31 `fish` and 5 `progress`.
 
 | Test target | Covers |
 |---|---|

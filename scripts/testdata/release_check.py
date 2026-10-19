@@ -63,12 +63,12 @@ MIN_BAIT_RECALL = {"ont": 0.80, "hifi": 0.95}
 # Files kept in testdata/expected/<case>/ (small text; JSON is normalised).
 KEEP = {
     "ont_lift": ["lift.stats.json", "qc.vcf", "qc.bed", "qc.findings.bed",
-                 "qc.json", "qc.haplotypes.tsv", "fish.fish.tsv",
-                 "fish.fish.json", "summary.json"],
+                 "qc.json", "qc.gc.bedgraph", "qc.haplotypes.tsv",
+                 "fish.fish.tsv", "fish.fish.json", "summary.json"],
     "ont_bait": ["fish.fish.tsv", "fish.fish.json", "summary.json"],
     "hifi_bait": ["qc.vcf", "qc.bed", "qc.findings.bed", "qc.json",
-                  "qc.haplotypes.tsv", "fish.fish.tsv", "fish.fish.json",
-                  "summary.json"],
+                  "qc.gc.bedgraph", "qc.haplotypes.tsv", "fish.fish.tsv",
+                  "fish.fish.json", "summary.json"],
 }
 # JSON keys dropped before storing/comparing (timings, machine-dependent).
 VOLATILE_KEYS = {"timing_s", "timings_s", "threads"}

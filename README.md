@@ -67,6 +67,7 @@ the mapping (`samtools index old.cram`) and run `qc` and `fish` on it directly. 
 | `qc` | `qc.findings.bed` | one finding per problem location, with tier and `likely` hint |
 | `qc` | `qc.json` | run summary: alert and finding counts, per-contig depth and circularity, `qc_qv` |
 | `qc` | `qc.depth.bedgraph` | per-position aligned-base depth |
+| `qc` | `qc.gc.bedgraph` | GC fraction per `--gc-window` bp window (default 100; `0` disables) |
 | `qc` | `qc.haplotypes.tsv` | reads of each linked haplotype group (input to `fish`) |
 | `qc` | `qc.candidates.tsv` (`--candidates`) | every pre-filtered candidate site with all statistics |
 | `fish` | `fish.fastq.gz` | the selected reads |

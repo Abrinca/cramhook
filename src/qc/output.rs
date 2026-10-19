@@ -185,6 +185,8 @@ pub struct Summary {
     pub inputs: BTreeMap<String, String>,
     pub indel_min_af: f64,
     pub lowcov_abs: u32,
+    /// GC track window in bp (`P.gc.bedgraph`); 0 = not written.
+    pub gc_window: u32,
     pub reads: ReadsSummary,
     pub assembly: AssemblySummary,
     /// Tiered calls: VCF sites + tiered BED regions, per tier.
@@ -267,6 +269,39 @@ fn qual(ln_p: f64) -> f64 {
     (-10.0 * ln_p / std::f64::consts::LN_10).clamp(0.0, 999.0)
 }
 
+/// GC fraction of one window: (G+C)/(A+C+G+T). Anything else (`N`, ambiguity
+/// codes) is excluded from both counts; a window with no A/C/G/T is 0.0.
+/// Lowercase bases are accepted (the FASTA reader uppercases them anyway).
+fn gc_fraction(win: &[u8]) -> f64 {
+    let (mut gc, mut acgt) = (0u64, 0u64);
+    for &b in win {
+        match b.to_ascii_uppercase() {
+            b'G' | b'C' => {
+                gc += 1;
+                acgt += 1;
+            }
+            b'A' | b'T' => acgt += 1,
+            _ => {}
+        }
+    }
+    if acgt == 0 { 0.0 } else { gc as f64 / acgt as f64 }
+}
+
+/// `P.gc.bedgraph` rows for one contig as `(start, end, gc)`, 0-based
+/// half-open: fixed windows of `w` bp (the last one shorter), one short window
+/// for a contig shorter than `w`. `w` is clamped to at least 1.
+pub(crate) fn gc_windows(seq: &[u8], w: usize) -> Vec<(usize, usize, f64)> {
+    let w = w.max(1);
+    let mut out = Vec::with_capacity(seq.len().div_ceil(w));
+    let mut s = 0;
+    while s < seq.len() {
+        let e = (s + w).min(seq.len());
+        out.push((s, e, gc_fraction(&seq[s..e])));
+        s = e;
+    }
+    out
+}
+
 /// Remove duplicate entries from one finding's cross-contig link notes, keeping
 /// the first occurrence (and order) of each. Two `clip_hotspot`s that link to
 /// each other would otherwise write the same two notes on both findings.
@@ -282,6 +317,7 @@ impl Outputs<'_> {
         self.write_bed()?;
         self.write_findings()?;
         self.write_bedgraph()?;
+        self.write_gc_bedgraph()?;
         self.write_haplotypes()?;
         if self.params.candidates {
             self.write_candidates()?;
@@ -568,6 +604,24 @@ impl Outputs<'_> {
         Ok(())
     }
 
+    /// `P.gc.bedgraph`: GC fraction per fixed window, from the in-memory FASTA.
+    /// `--gc-window 0` writes no file.
+    fn write_gc_bedgraph(&self) -> Result<()> {
+        if self.params.gc_window == 0 {
+            return Ok(());
+        }
+        let p = out_path(self.prefix, ".gc.bedgraph");
+        let mut w = create(&p)?;
+        let win = self.params.gc_window as usize;
+        for (tid, _) in self.scan.contigs.iter().enumerate() {
+            for (s, e, gc) in gc_windows(self.refs[tid], win) {
+                writeln!(w, "{}\t{}\t{}\t{:.4}", self.names[tid], s, e, gc)?;
+            }
+        }
+        w.flush()?;
+        Ok(())
+    }
+
     /// `P.haplotypes.tsv`: one row per (group, read) the linkage pass found.
     fn write_haplotypes(&self) -> Result<()> {
         let p = out_path(self.prefix, ".haplotypes.tsv");
@@ -844,6 +898,7 @@ impl Outputs<'_> {
             inputs,
             indel_min_af: self.indel_min_af,
             lowcov_abs: self.lowcov_abs,
+            gc_window: self.params.gc_window,
             reads,
             assembly: AssemblySummary {
                 length_bp: genome,
@@ -908,6 +963,56 @@ mod tests {
         let mut one = vec!["x".to_string(), "x".to_string(), "x".to_string()];
         dedup_notes(&mut one);
         assert_eq!(one, vec!["x".to_string()]);
+    }
+
+    /// Fixed windows with an exact division: one row per window, no short tail.
+    #[test]
+    fn gc_windows_exact_division() {
+        let seq = b"ACGTACGT";
+        let w = gc_windows(seq, 4);
+        assert_eq!(w.len(), 2, "{w:?}");
+        assert_eq!(w[0], (0, 4, 0.5)); // A C G T -> 2/4
+        assert_eq!(w[1], (4, 8, 0.5));
+    }
+
+    /// The last window is short and covers exactly the remaining bases.
+    #[test]
+    fn gc_windows_partial_last() {
+        let w = gc_windows(b"ACGTA", 2);
+        assert_eq!(w, vec![(0, 2, 0.5), (2, 4, 0.5), (4, 5, 0.0)]);
+    }
+
+    /// A contig shorter than the window gets exactly one short window.
+    #[test]
+    fn gc_windows_contig_shorter_than_window() {
+        let w = gc_windows(b"GC", 100);
+        assert_eq!(w, vec![(0, 2, 1.0)]);
+    }
+
+    /// A window with no A/C/G/T is `0.0000`, and non-ACGT bases are excluded
+    /// from the denominator rather than counted as AT.
+    #[test]
+    fn gc_windows_n_only_and_ambiguity_excluded() {
+        assert_eq!(gc_windows(b"NNNN", 2), vec![(0, 2, 0.0), (2, 4, 0.0)]);
+        // G C N N -> 2 GC out of 2 A/C/G/T, not out of 4.
+        assert_eq!(gc_windows(b"GCNN", 4), vec![(0, 4, 1.0)]);
+        // R (A or G) and Y are not counted either way.
+        assert_eq!(gc_windows(b"ACRNY", 5), vec![(0, 5, 0.5)]);
+    }
+
+    /// Lowercase input counts like uppercase.
+    #[test]
+    fn gc_windows_lowercase() {
+        assert_eq!(gc_windows(b"gcat", 4), vec![(0, 4, 0.5)]);
+        assert_eq!(gc_windows(b"ggcc", 2), vec![(0, 2, 1.0), (2, 4, 1.0)]);
+    }
+
+    /// An empty sequence has no windows; `w = 0` is clamped to 1 (the writer
+    /// disables the track itself, this only guards the helper).
+    #[test]
+    fn gc_windows_empty_and_zero_window() {
+        assert!(gc_windows(b"", 100).is_empty());
+        assert_eq!(gc_windows(b"AC", 0).len(), 2);
     }
 
     #[test]

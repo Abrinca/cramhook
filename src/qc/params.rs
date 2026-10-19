@@ -117,6 +117,8 @@ pub struct QcParams {
     pub clip_pair_dist: u32,
     /// Clip hotspots: skip clusters within this of a contig end (bp).
     pub clip_edge: u32,
+    /// GC track: window length in bp (`P.gc.bedgraph`); 0 disables the file.
+    pub gc_window: u32,
     /// Depth bands: window length in bp.
     pub depth_window: u32,
     /// Depth bands: `low` band ratio ceiling.
@@ -264,6 +266,7 @@ impl Default for QcParams {
             clip_high_s: 100.0,
             clip_pair_dist: 50,
             clip_edge: 100,
+            gc_window: 100,
             depth_window: 500,
             depth_low: 0.25,
             depth_half_min: 0.35,

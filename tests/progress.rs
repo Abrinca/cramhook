@@ -168,7 +168,7 @@ fn progress_qc() {
     assert!(!scan.is_empty());
     assert!(scan.iter().all(|v| v["total_exact"] == true && v["records_total"] == samtools_count(&cram)));
     assert_eq!(scan.last().unwrap()["records"], samtools_count(&cram));
-    for suf in [".vcf", ".bed", ".findings.bed", ".depth.bedgraph", ".haplotypes.tsv"] {
+    for suf in [".vcf", ".bed", ".findings.bed", ".depth.bedgraph", ".gc.bedgraph", ".haplotypes.tsv"] {
         assert_eq!(read_text(with_prefix(&a, suf)), read_text(with_prefix(&b, suf)), "{suf} differs");
     }
     assert_eq!(json_stable(with_prefix(&a, ".json")), json_stable(with_prefix(&b, ".json")));

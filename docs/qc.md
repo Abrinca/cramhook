@@ -22,6 +22,7 @@ cramhook qc --in old.cram --ref old.fa --preset lr:hq --out-prefix q --candidate
 |------|---------|---------|
 | `--threads` | all cores | worker threads for the scan, circularity and linkage passes |
 | `--candidates` | off | also write `q.candidates.tsv` |
+| `--gc-window` | 100 | GC track window in bp (`q.gc.bedgraph`); `0` disables the file |
 | `--progress` | off | machine-readable progress on stderr, one JSON object per line (phases `scan`, `circularity`, `call`, `linkage`, `output`); see [output-format.md](output-format.md#progress-stream---progress) |
 
 The thresholds (`--min-depth`, `--fdr`, `--clip-*`, `--depth-*`, `--link-*`, …) are listed by
@@ -38,6 +39,7 @@ With `--out-prefix q`, qc writes:
 | `q.findings.bed` | one finding per group of tiered calls, with the `likely` hint |
 | `q.json` | run summary: reads, assembly, alerts, findings, warnings, contigs, linkage, `qc_qv` |
 | `q.depth.bedgraph` | per-position aligned-base depth |
+| `q.gc.bedgraph` | GC fraction per `--gc-window` bp window, from the reference (`0` disables) |
 | `q.candidates.tsv` (with `--candidates`) | every pre-filtered candidate with all statistics |
 | `q.haplotypes.tsv` | one row per (haplotype group, read); `fish` selects from it |
 
