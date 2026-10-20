@@ -14,6 +14,10 @@
       }
     }
   },
+  "cap": {
+    "reads": 0,
+    "bp": 0
+  },
   "records": {
     "total": 6977,
     "primary": 6086,
@@ -39,7 +43,9 @@
     "clip_min_len": 50,
     "indel_min_len": 50,
     "indel_merge_gap": 50,
-    "indel_piece_min": 10
+    "indel_piece_min": 10,
+    "clip_cap": 0,
+    "clip_bin": 2000
   },
   "bait": null,
   "notes": []

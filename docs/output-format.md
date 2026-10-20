@@ -258,8 +258,9 @@ thresholds used, and timing. Top-level keys:
 |---|---|
 | `format_version` | 1 |
 | `reads` | `reads`, `bp` (distinct selected reads, summed length) and `by_reason` (per reason: `reads`, `bp`; a read can count under more than one) |
+| `cap` | reads dropped by `--clip-cap`: `reads`, `bp` (summed read length); zeros when the cap is off. Dropped reads are not in `reads` or the outputs; see [fish.md](fish.md#capping-clip-reads) |
 | `records` | input record counts: `total`, `primary`, `supplementary`, `secondary`, `duplicate`, `qcfail`, `unmapped`, `mapped_bp`, `unmapped_bp` |
-| `params` | `scope`, `min_tier`, `finding_pad`, `unmapped`, `clips`, `indels`, `linked`, `bait`, `locus`, `locus_flank`, `clip_min_len`, `indel_min_len`, `indel_merge_gap`, `indel_piece_min` |
+| `params` | `scope`, `min_tier`, `finding_pad`, `unmapped`, `clips`, `indels`, `linked`, `bait`, `locus`, `locus_flank`, `clip_min_len`, `indel_min_len`, `indel_merge_gap`, `indel_piece_min`, `clip_cap` (0 = off), `clip_bin` |
 | `bait` | `null` without `--bait`; see below |
 | `notes` | categories turned off or skipped (e.g. `linked` without `--haplotypes`) |
 | `timing_s` | `pass`, `total` (seconds) |

@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and are not counted in `alerts`.
 - `cramhook fish`: extract reads behind the calls (clips, large indels, unmapped, linked, locus),
   including `--bait` (lift against assembly + bait sequence) and `--bait-records any|primary`.
+  `--clip-cap N` / `--clip-bin BP` (default off / 2000) cap the clip-only reads per reference bin
+  for high-depth samples (reads with another reason are never dropped; of the remaining ones the
+  longest clips in a bin are kept, ties by read name). On hotspot samples this removes most of the
+  clip volume (measured: 36 % fewer ONT selected reads at cap 10) while every planted event kept at
+  least `N` reads on it; the JSON reports `cap` and `params.clip_cap`/`clip_bin`.
 - Debug commands `cramhook diff` (identity blocks, taint, novel regions, junctions) and
   `cramhook translate` (classification only).
 - `--progress` on `lift`, `qc` and `fish`: machine-readable progress on stderr, one JSON object per

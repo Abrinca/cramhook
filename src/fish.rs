@@ -37,6 +37,9 @@
 //! only difference). The FASTQ payload of each selected read is the smallest
 //! `(rank, tid, pos)` donor (counted primary first), captured by a second pass
 //! that decodes only the selected reads.
+//!
+//! `--clip-cap` (off by default) thins clip-only reads per reference bin after
+//! the merge and before the payload pass; see `apply_clip_cap`.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
@@ -170,6 +173,11 @@ pub struct FishParams {
     pub indel_merge_gap: u32,
     /// Only indels of at least this size take part in the merge.
     pub indel_piece_min: u32,
+    /// Maximum clip-selected reads per `clip_bin`-bp reference bin; `0` (default)
+    /// disables the cap. See `apply_clip_cap`.
+    pub clip_cap: u32,
+    /// Bin size (reference bp) for `clip_cap`; must be positive.
+    pub clip_bin: u64,
     /// `--progress` reporter (off by default).
     pub progress: crate::progress::Progress,
 }
@@ -198,6 +206,8 @@ impl Default for FishParams {
             indel_min_len: 50,
             indel_merge_gap: 50,
             indel_piece_min: 10,
+            clip_cap: 0,
+            clip_bin: 2000,
             progress: Default::default(),
         }
     }
@@ -268,6 +278,19 @@ pub struct FishParamsOut {
     pub indel_min_len: u32,
     pub indel_merge_gap: u32,
     pub indel_piece_min: u32,
+    /// `--clip-cap` (0 = off).
+    pub clip_cap: u32,
+    /// `--clip-bin` (bp).
+    pub clip_bin: u64,
+}
+
+/// Reads dropped by the clip cap.
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct CapSummary {
+    /// Clip-only reads dropped.
+    pub reads: u64,
+    /// Summed length of the dropped reads.
+    pub bp: u64,
 }
 
 /// Wall times.
@@ -281,6 +304,8 @@ pub struct FishTiming {
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct FishSummary {
     pub reads: FishReads,
+    /// Reads dropped by `--clip-cap` (zeros when off); they are not in `reads`.
+    pub cap: CapSummary,
     pub records: InputCounts,
     pub params: FishParamsOut,
     /// The `bait` step, when `--bait` was given.
@@ -421,6 +446,61 @@ impl ReadAgg {
             }
         }
     }
+}
+
+/// Cap the clip-selected reads per reference bin (`--clip-cap`/`--clip-bin`).
+///
+/// Every read whose sole reason is `clip` is eligible, whatever its clip length
+/// (every other reason keeps its read). An eligible read is binned by
+/// `(contig, pos / bin)` of its best clip event (the `event_better` order:
+/// largest clip first). In a bin with more than `cap` eligible reads, the `cap`
+/// reads with the largest best-clip length are kept and the rest are removed
+/// from `selected`; equal lengths are broken by read name ascending. A long clip
+/// spans furthest into sequence the assembly does not hold, so the longest clips
+/// are the reads worth keeping, and ranking by length first also keeps a
+/// hotspot's mixed clip lengths from evicting its long clips. The choice depends
+/// only on the read data and names, so it is the same for any thread count or
+/// input order. A no-op when `cap` or `bin` is 0. Returns the dropped reads and
+/// their summed length.
+fn apply_clip_cap(selected: &mut Vec<(String, ReadAgg)>, cap: u32, bin: u64) -> (u64, u64) {
+    if cap == 0 || bin == 0 {
+        return (0, 0);
+    }
+    // (bin key) -> eligible reads as (index, best clip length)
+    let mut bins: HashMap<(&str, u64), Vec<(usize, u64)>> = HashMap::new();
+    for (i, (_, agg)) in selected.iter().enumerate() {
+        if !agg.events.keys().all(|(r, _)| *r == R_CLIP) {
+            continue;
+        }
+        let Some(best) = agg.events.values().reduce(|a, b| if event_better(b, a) { b } else { a })
+        else {
+            continue;
+        };
+        bins.entry((best.contig.as_str(), best.pos / bin)).or_default().push((i, best.len));
+    }
+    let mut drop = vec![false; selected.len()];
+    for v in bins.values_mut() {
+        if v.len() <= cap as usize {
+            continue;
+        }
+        v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| selected[a.0].0.cmp(&selected[b.0].0)));
+        for &(i, _) in &v[cap as usize..] {
+            drop[i] = true;
+        }
+    }
+    let mut reads = 0u64;
+    let mut bp = 0u64;
+    let mut i = 0;
+    selected.retain(|(_, a)| {
+        let d = drop[i];
+        i += 1;
+        if d {
+            reads += 1;
+            bp += a.read_len;
+        }
+        !d
+    });
+    (reads, bp)
 }
 
 /// The FASTQ SEQ/QUAL (original orientation, Phred+33) of one record, with the
@@ -1475,6 +1555,9 @@ pub fn run_fish(input: &Path, ref_path: &Path, out_prefix: &Path, params: &FishP
 fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &FishParams) -> Result<FishSummary> {
     let progress = &params.progress;
     let t0 = Instant::now();
+    if params.clip_bin == 0 {
+        bail!("--clip-bin must be positive");
+    }
     crate::translate::ensure_parent(out_prefix)?;
 
     // Resolve the scope and validate the inputs.
@@ -1710,6 +1793,7 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
     let mut selected: Vec<(String, ReadAgg)> =
         global.into_iter().filter(|(_, a)| !a.events.is_empty()).collect();
     selected.sort_by(|a, b| a.0.cmp(&b.0));
+    let (cap_reads, cap_bp) = apply_clip_cap(&mut selected, params.clip_cap, params.clip_bin);
 
     // Second pass: capture the FASTQ payload of each selected read. Only the
     // selected reads are decoded, so memory stays proportional to the selection
@@ -1849,6 +1933,7 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
     let pass_s = t0.elapsed().as_secs_f64();
     let summary = FishSummary {
         reads,
+        cap: CapSummary { reads: cap_reads, bp: cap_bp },
         records: counts,
         params: FishParamsOut {
             scope: match scope {
@@ -1868,6 +1953,8 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
             indel_min_len: params.indel_min_len,
             indel_merge_gap: params.indel_merge_gap,
             indel_piece_min: params.indel_piece_min,
+            clip_cap: params.clip_cap,
+            clip_bin: params.clip_bin,
         },
         bait: bait_summary,
         notes,
@@ -1933,5 +2020,193 @@ mod bait_unit {
         let p1 = hit(true, 60, "a", 10);
         let p2 = hit(true, 60, "a", 20);
         assert!(bait_better(&p1, &p2));
+    }
+}
+
+#[cfg(test)]
+mod cap_unit {
+    use super::*;
+
+    fn ev(len: u64, pos: u64, contig: &str) -> Event {
+        Event {
+            len,
+            pos,
+            primary: true,
+            strand: '+',
+            detail: String::new(),
+            finding: None,
+            contig: contig.to_string(),
+            sa: String::new(),
+        }
+    }
+
+    fn read(name: &str, evs: &[(&'static str, Option<u32>, Event)]) -> (String, ReadAgg) {
+        let mut a = ReadAgg { read_len: 1000, ..Default::default() };
+        for (r, f, e) in evs {
+            let mut e = e.clone();
+            e.finding = *f;
+            a.offer(*r, e);
+        }
+        (name.to_string(), a)
+    }
+
+    fn clip(name: &str, len: u64, pos: u64, contig: &str) -> (String, ReadAgg) {
+        read(name, &[(R_CLIP, None, ev(len, pos, contig))])
+    }
+
+    fn names(v: &[(String, ReadAgg)]) -> Vec<String> {
+        v.iter().map(|(n, _)| n.clone()).collect()
+    }
+
+    fn sorted(mut v: Vec<(String, ReadAgg)>) -> Vec<(String, ReadAgg)> {
+        v.sort_by(|a, b| a.0.cmp(&b.0));
+        v
+    }
+
+    fn bin_of(n: usize, prefix: &str, pos: u64, contig: &str) -> Vec<(String, ReadAgg)> {
+        (0..n).map(|i| clip(&format!("{prefix}{i}"), 100, pos + i as u64, contig)).collect()
+    }
+
+    #[test]
+    fn noop_when_off() {
+        let mk = || sorted(bin_of(10, "r", 0, "c"));
+        let mut v = mk();
+        assert_eq!(apply_clip_cap(&mut v, 0, 2000), (0, 0));
+        assert_eq!(v.len(), 10);
+        assert_eq!(apply_clip_cap(&mut v, 4, 0), (0, 0));
+        assert_eq!(v.len(), 10);
+    }
+
+    #[test]
+    fn fifth_read_dropped_at_cap_4() {
+        let mut v = sorted(bin_of(5, "r", 10, "c"));
+        let (n, bp) = apply_clip_cap(&mut v, 4, 2000);
+        assert_eq!((n, bp), (1, 1000));
+        assert_eq!(v.len(), 4);
+        // a bin at exactly the cap is untouched
+        let mut v = sorted(bin_of(4, "r", 10, "c"));
+        assert_eq!(apply_clip_cap(&mut v, 4, 2000), (0, 0));
+    }
+
+    #[test]
+    fn non_clip_reasons_never_dropped() {
+        let mut v = bin_of(5, "c", 10, "c");
+        for (r, other) in [R_UNMAPPED, R_INS, R_DEL, R_LINKED, R_LOCUS, R_BAIT].iter().enumerate() {
+            v.push(read(
+                &format!("x{r}"),
+                &[(R_CLIP, None, ev(100, 10, "c")), (other, None, ev(100, 10, "c"))],
+            ));
+        }
+        let mut v = sorted(v);
+        let (n, _) = apply_clip_cap(&mut v, 1, 2000);
+        assert_eq!(n, 4);
+        let kept = names(&v);
+        for r in 0..6 {
+            assert!(kept.contains(&format!("x{r}")));
+        }
+        assert_eq!(kept.len(), 6 + 1);
+    }
+
+    #[test]
+    fn bins_are_independent() {
+        let mut v = bin_of(5, "a", 10, "c");
+        v.extend(bin_of(5, "b", 2010, "c"));
+        v.extend(bin_of(3, "d", 10, "other"));
+        let mut v = sorted(v);
+        let (n, _) = apply_clip_cap(&mut v, 4, 2000);
+        assert_eq!(n, 2);
+        let kept = names(&v);
+        assert_eq!(kept.iter().filter(|k| k.starts_with('a')).count(), 4);
+        assert_eq!(kept.iter().filter(|k| k.starts_with('b')).count(), 4);
+        assert_eq!(kept.iter().filter(|k| k.starts_with('d')).count(), 3);
+    }
+
+    #[test]
+    fn long_clip_is_eligible_and_kept_as_longest() {
+        // A 500 bp clip is no longer exempt, but being the longest it is kept.
+        let mut v: Vec<_> = (0..6).map(|i| clip(&format!("l{i}"), 500, 10, "c")).collect();
+        v.extend((0..6).map(|i| clip(&format!("s{i}"), 499, 10, "c")));
+        let mut v = sorted(v);
+        let (n, _) = apply_clip_cap(&mut v, 3, 2000);
+        assert_eq!(n, 9);
+        let kept = names(&v);
+        assert_eq!(kept, vec!["l0", "l1", "l2"]);
+    }
+
+    #[test]
+    fn two_longest_kept_at_cap_2() {
+        let mut v = vec![
+            clip("a", 120, 10, "c"),
+            clip("b", 900, 10, "c"),
+            clip("c", 400, 10, "c"),
+            clip("d", 900, 10, "c"),
+            clip("e", 600, 10, "c"),
+        ];
+        let (n, bp) = apply_clip_cap(&mut v, 2, 2000);
+        assert_eq!((n, bp), (3, 3000));
+        // The two longest (b, d tie at 900, so name ascending); c and e follow.
+        assert_eq!(names(&v), vec!["b", "d"]);
+    }
+
+    #[test]
+    fn two_clip_events_use_the_largest() {
+        // Findings scope: clip events in two findings; the 300 bp clip at 5000
+        // decides the bin (bin 2), not the 80 bp clip at 10 (bin 0).
+        let two = |name: &str| {
+            read(
+                name,
+                &[
+                    (R_CLIP, Some(1), ev(80, 10, "c")),
+                    (R_CLIP, Some(2), ev(300, 5000, "c")),
+                ],
+            )
+        };
+        let mut v: Vec<_> = (0..3).map(|i| two(&format!("t{i}"))).collect();
+        v.extend(bin_of(3, "z", 10, "c")); // bin 0, three reads
+        let mut v = sorted(v);
+        // cap 3: bin 0 holds 3 reads, bin 2 holds 3 reads: nothing dropped
+        assert_eq!(apply_clip_cap(&mut v, 3, 2000), (0, 0));
+        // cap 2: one dropped from each bin; the two-clip reads sit in bin 2
+        let (n, _) = apply_clip_cap(&mut v, 2, 2000);
+        assert_eq!(n, 2);
+        let kept = names(&v);
+        assert_eq!(kept.iter().filter(|k| k.starts_with('t')).count(), 2);
+        assert_eq!(kept.iter().filter(|k| k.starts_with('z')).count(), 2);
+    }
+
+    #[test]
+    fn kept_set_independent_of_input_order() {
+        // Two bins of 40 reads each with a spread of clip lengths, so the ranking
+        // mixes length ordering and name ties.
+        let mk = || {
+            let mut v: Vec<(String, ReadAgg)> = (0..40)
+                .map(|i| clip(&format!("read{i}"), 100 + (i as u64 % 7) * 50, 10 + i as u64, "c"))
+                .collect();
+            v.extend(
+                (0..40).map(|i| clip(&format!("q{i}"), 100 + (i as u64 % 5) * 90, 4010 + i as u64, "c")),
+            );
+            v
+        };
+        let mut base = mk();
+        apply_clip_cap(&mut base, 7, 2000);
+        let mut expect = names(&base);
+        expect.sort();
+        assert_eq!(expect.len(), 14);
+        // Deterministic permutations (reverse, rotate, by length, by name desc).
+        for k in 0..4usize {
+            let mut v = mk();
+            match k {
+                0 => v.reverse(),
+                1 => v.rotate_left(17),
+                2 => v.sort_by(|a, b| {
+                    (a.0.len(), &a.0).cmp(&(b.0.len(), &b.0))
+                }),
+                _ => v.sort_by(|a, b| b.0.cmp(&a.0)),
+            }
+            apply_clip_cap(&mut v, 7, 2000);
+            let mut got = names(&v);
+            got.sort();
+            assert_eq!(got, expect, "permutation {k}");
+        }
     }
 }

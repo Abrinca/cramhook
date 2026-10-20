@@ -294,6 +294,148 @@ fn fish_selects_each_category_and_thread_identity() {
     assert_eq!(strip(&p1), strip(&p8));
 }
 
+/// Distinct read -> sorted reasons from the TSV.
+fn reasons_by_read(rows: &[Vec<String>]) -> std::collections::BTreeMap<String, Vec<String>> {
+    let mut m: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for r in rows {
+        let v = m.entry(r[0].clone()).or_default();
+        if !v.contains(&r[2]) {
+            v.push(r[2].clone());
+        }
+    }
+    m.values_mut().for_each(|v| v.sort());
+    m
+}
+
+fn fastq_count(prefix: &Path) -> usize {
+    fastq(prefix).iter().filter(|&&b| b == b'\n').count() / 4
+}
+
+#[test]
+fn fish_clip_cap() {
+    let (r, mut recs, _clip, _ins, _del) = build();
+    // Reads in the same 100 bp bin as the right-clip junction (pos 1998/1999) that
+    // the cap must keep: clip + large insertion (two reasons), and 600 bp clips
+    // (eligible now, kept because they are the longest in their bin).
+    for k in 0..3 {
+        let mut seq = r[1500..1700].to_vec();
+        seq.extend_from_slice(&random_seq(INS_LEN, 300 + k));
+        seq.extend_from_slice(&r[1700..1940]);
+        seq.extend(std::iter::repeat_n(b'A', 120));
+        recs.push(RawRec {
+            name: format!("mixed{k}"),
+            pos: 1500,
+            cigar: vec![Cigar::Match(200), Cigar::Ins(INS_LEN as u32), Cigar::Match(240), Cigar::SoftClip(120)],
+            seq,
+            flags: 0,
+        });
+        let mut seq = r[1599..1999].to_vec();
+        seq.extend(std::iter::repeat_n(b'C', 600));
+        recs.push(RawRec {
+            name: format!("long{k}"),
+            pos: 1599,
+            cigar: vec![Cigar::Match(400), Cigar::SoftClip(600)],
+            seq,
+            flags: 0,
+        });
+    }
+
+    let off = run("cap_off", &r, &recs, &params(1));
+    // A small explicit chunk size keeps the threading comparison meaningful on
+    // this 9 kb fixture: at the default automatic chunk size the whole
+    // reference is a single task even with 8 workers. The cap equals the number
+    // of 600 bp clips in the right-clip bin, so they survive as the longest.
+    let capped = |threads: usize, name: &str| {
+        run(
+            name,
+            &r,
+            &recs,
+            &FishParams {
+                clip_cap: 3,
+                clip_bin: 100,
+                chunk_size: Some(500),
+                ..params(threads)
+            },
+        )
+    };
+    let on = capped(1, "cap_on_t1");
+
+    let before = reasons_by_read(&tsv(&off));
+    let after = reasons_by_read(&tsv(&on));
+    let dropped: Vec<&String> = before.keys().filter(|k| !after.contains_key(*k)).collect();
+    assert!(!dropped.is_empty());
+    // Only clip-only reads disappear; every kept read keeps its reasons.
+    for d in &dropped {
+        assert_eq!(before[*d], vec!["clip".to_string()], "{d}");
+        assert!(d.starts_with("clipR") || d.starts_with("clipL"), "{d}");
+    }
+    for (k, v) in &after {
+        assert_eq!(&before[k], v, "{k}");
+    }
+    for n in ["mixed0", "mixed1", "mixed2", "long0", "long1", "long2", "unplaced1"] {
+        assert!(after.contains_key(n), "{n} must be kept");
+    }
+    // The 600 bp clips are eligible but outrank the 120 bp clips of the same bin,
+    // so all three are kept: every clipR read goes and 17 of the 20 clipL reads.
+    let kept_clip: Vec<&str> = after
+        .iter()
+        .filter(|(k, r)| r.len() == 1 && r[0] == "clip" && k.starts_with("clip"))
+        .map(|(k, _)| k.as_str())
+        .collect();
+    assert_eq!(kept_clip, vec!["clipL0", "clipL1", "clipL10"], "{kept_clip:?}");
+    assert_eq!(dropped.iter().filter(|d| d.starts_with("clipR")).count(), 20, "{dropped:?}");
+    assert_eq!(dropped.iter().filter(|d| d.starts_with("clipL")).count(), 17, "{dropped:?}");
+    assert_eq!(dropped.len(), 37);
+    for reason in ["large_ins", "large_del", "unmapped"] {
+        assert_eq!(reasons_of(&tsv(&off), reason), reasons_of(&tsv(&on), reason), "{reason}");
+    }
+
+    // FASTQ and TSV agree, and the JSON reports the difference.
+    assert_eq!(fastq_count(&on), after.len());
+    assert_eq!(fastq_count(&off), before.len());
+    let (j0, j1) = (json(&off), json(&on));
+    assert_eq!(j1["cap"]["reads"].as_u64().unwrap(), (before.len() - after.len()) as u64, "{j1}");
+    assert_eq!(j1["cap"]["bp"].as_u64().unwrap(), 37 * 620, "{j1}");
+    assert_eq!(j0["cap"]["reads"], 0);
+    assert_eq!(j0["cap"]["bp"], 0);
+    assert_eq!(j0["params"]["clip_cap"], 0);
+    assert_eq!(j0["params"]["clip_bin"], 2000);
+    assert_eq!(j1["params"]["clip_cap"], 3);
+    assert_eq!(j1["params"]["clip_bin"], 100);
+    assert_eq!(j1["reads"]["reads"].as_u64().unwrap(), after.len() as u64);
+    assert_eq!(
+        j1["reads"]["by_reason"]["clip"]["reads"].as_u64().unwrap(),
+        3 + 3 + 3,
+        "{j1}"
+    );
+
+    // Thread identity with the cap on.
+    let on8 = capped(8, "cap_on_t8");
+    assert_eq!(
+        std::fs::read(on.with_extension("fish.tsv")).unwrap(),
+        std::fs::read(on8.with_extension("fish.tsv")).unwrap()
+    );
+    assert_eq!(fastq(&on), fastq(&on8));
+    let strip = |path: &Path| {
+        let mut v = json(path);
+        v.as_object_mut().unwrap().remove("timing_s");
+        v
+    };
+    assert_eq!(strip(&on), strip(&on8));
+}
+
+#[test]
+fn fish_clip_bin_zero_is_an_error() {
+    let dir = workdir("cap_bin0");
+    let r = random_seq(1_000, 3);
+    let fa = dir.join("ref.fa");
+    std::fs::write(&fa, format!(">chr\n{}\n", std::str::from_utf8(&r).unwrap())).unwrap();
+    let err = run_fish(&dir.join("x.bam"), &fa, &dir.join("out"), &FishParams { clip_bin: 0, ..params(1) })
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("--clip-bin must be positive"), "{err}");
+}
+
 #[test]
 fn fish_fastq_original_orientation() {
     // A reverse-strand clipped read: SEQ is stored revcomp'd and QUAL reversed;

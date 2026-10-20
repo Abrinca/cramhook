@@ -447,6 +447,14 @@ struct FishArgs {
     /// Only indels of at least this size take part in the merge.
     #[arg(long, default_value_t = 10)]
     indel_piece_min: u32,
+    /// Keep at most this many clip-selected reads per --clip-bin reference bin
+    /// (reads with any other reason, or a clip of 500 bp or more, are never
+    /// dropped); 0 disables the cap. For high-depth samples.
+    #[arg(long, default_value_t = 0)]
+    clip_cap: u32,
+    /// Bin size in reference bp for --clip-cap.
+    #[arg(long, default_value_t = 2000)]
+    clip_bin: u64,
     /// Write machine-readable progress to stderr (one JSON object per line).
     #[arg(long)]
     progress: bool,
@@ -962,6 +970,8 @@ fn run_fish_cmd(a: FishArgs) -> Result<()> {
         indel_min_len: a.indel_min_len,
         indel_merge_gap: a.indel_merge_gap,
         indel_piece_min: a.indel_piece_min,
+        clip_cap: a.clip_cap,
+        clip_bin: a.clip_bin,
         progress: progress(a.progress, "fish"),
         ..Default::default()
     };
@@ -971,6 +981,12 @@ fn run_fish_cmd(a: FishArgs) -> Result<()> {
         "selected: {} reads, {} bp",
         s.reads.reads, s.reads.bp
     );
+    if s.params.clip_cap > 0 {
+        note!(
+            "clip cap {} per {} bp: dropped {} reads, {} bp",
+            s.params.clip_cap, s.params.clip_bin, s.cap.reads, s.cap.bp
+        );
+    }
     for (reason, c) in &s.reads.by_reason {
         note!("  {reason}: {} reads, {} bp", c.reads, c.bp);
     }

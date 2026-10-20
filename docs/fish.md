@@ -12,11 +12,13 @@ cramhook fish --in old.cram --ref asm.fa --out-prefix P [--threads N] [--linear 
   [--locus [--locus-flank 5000]] [--bait bait.fa] [--bait-min-input-mb MB] \
   [--bait-records any|primary] \
   [--clip-min-len 50] [--indel-min-len 50] [--indel-merge-gap 50] [--indel-piece-min 10] \
-  [--progress]
+  [--clip-cap N [--clip-bin 2000]] [--progress]
 ```
 
 | Flag | Default | Purpose |
 |------|---------|---------|
+| `--clip-cap N` | `0` (off) | keep at most `N` clip-selected reads per bin of `--clip-bin` reference bp; see [Capping clip reads](#capping-clip-reads) |
+| `--clip-bin BP` | `2000` | bin size for `--clip-cap`; `0` is an error (`--clip-bin must be positive`) |
 | `--progress` | off | machine-readable progress on stderr, one JSON object per line (phases `pass`, `bait_lift` with `--bait`, `payload`, `output`); see [output-format.md](output-format.md#progress-stream---progress) |
 
 ## Selection
@@ -43,6 +45,38 @@ selection is on by default and requires `--haplotypes` (if no file is given it i
 and recorded in the JSON; `--no-linked` turns it off). Reads that merely end at a position, or agree
 with the assembly, are not selected; site-only and depth-only findings contribute only through
 `--locus`.
+
+## Capping clip reads
+
+On a high-depth sample a few hotspots (repeats, rDNA, IS elements, misjoins) can contribute hundreds
+to thousands of clipped reads per bin and flood the reassembly input: FAM20862 (~230x ONT) has
+9,710 clip reads in a single 2 kb bin. **`--clip-cap N`** keeps at most `N` clip-selected reads per
+`--clip-bin` bp bin of the reference (default bin 2000 bp). It is off by default and then the outputs
+are unchanged; most bins are below the cap and unaffected.
+
+This is a downsampling knob, not a filter: where a bin exceeds the cap, the kept clip coverage drops
+to about `N` reads. Measured on the plant-error eval (genome scope, 72 deletions/collapses), cap 10
+cut ONT selected reads by 36 % (bp 29 %) and cap 20 by 31 % (bp 24 %), and every planted event still
+had at least 10 (cap 10) or 20 (cap 20) selected reads on it (median 132 / 140). Aggressive cuts are
+therefore safe for reassembly but are not "free": raise `--clip-cap` (20-50) when the downstream
+step wants more depth, and use `--clip-min-len` (instead) when the noise is uniform rather than
+hotspot-driven.
+
+- **Eligibility.** Only a read whose *sole* reason is `clip` can be dropped. A read selected by
+  `unmapped`, `large_ins`, `large_del`, `linked`, `locus` or `bait` is never dropped, even when it
+  also has a clip. Every clip-only read is eligible, whatever the length of its clip.
+- **Binning.** A read is placed by its best clip (the largest, then the smallest position): bin =
+  (contig, position / `--clip-bin`).
+- **Choice.** In a bin with more than `N` eligible reads, the `N` reads with the largest best-clip
+  length are kept (ties by read name, ascending). A long clip spans furthest into sequence the
+  assembly does not hold, so this favours exactly the reads worth re-examining, and a hotspot's
+  short clips cannot crowd out its long ones.
+- **Determinism.** The ranking uses only the clip lengths and the read names, so the kept set is
+  identical for every `--threads` and input order.
+- **Effect.** Dropped reads are not selected at all: they are absent from `P.fastq.gz`,
+  `P.fish.tsv` and the `reads` / `by_reason` counts, and the payload pass skips them.
+  `P.fish.json` reports the totals in `cap` (`reads`, `bp`; zeros when off) and `params` records
+  `clip_cap` and `clip_bin`.
 
 ## `--bait`
 
@@ -85,7 +119,7 @@ always records `mode` and the number of supplementary-only reads; an absent flag
 |---|---|
 | `P.fastq.gz` | the selected reads (BGZF), each once, in original orientation, sorted by read name |
 | `P.fish.tsv` | one row per (read, reason, finding) |
-| `P.fish.json` | selected reads and bp per reason and in total, input record counts, categories and thresholds, timing; a `bait` block with `--bait` |
+| `P.fish.json` | selected reads and bp per reason and in total, reads dropped by `--clip-cap`, input record counts, categories and thresholds, timing; a `bait` block with `--bait` |
 | `P.bait_ref.fa` (with `--bait`) | assembly + bait contigs, indexed |
 | `P.bait.cram` (with `--bait`) | the bait lift, with index |
 

@@ -30,6 +30,6 @@ pub use translate::{Fallback, Params, Reason, Stats, TranslateConfig, translate}
 pub use lift::{LiftOptions, lift, lift_with_progress};
 pub use progress::Progress;
 pub use fish::{
-    BaitContig, BaitRecords, BaitSummary, FishParams, FishScope, FishSummary, FishTier, run_fish,
+    BaitContig, BaitRecords, BaitSummary, CapSummary, FishParams, FishScope, FishSummary, FishTier, run_fish,
 };
 pub use qc::{QcParams, run_qc};
