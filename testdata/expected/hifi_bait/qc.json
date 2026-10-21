@@ -1,7 +1,7 @@
 {
   "format_version": 1,
   "analysis_type": "cramhook qc",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "preset": "map-hifi",
   "inputs": {
     "in": "cramhook-testdata-v1/hifi/asm.cram",

@@ -448,8 +448,8 @@ struct FishArgs {
     #[arg(long, default_value_t = 10)]
     indel_piece_min: u32,
     /// Keep at most this many clip-selected reads per --clip-bin reference bin
-    /// (reads with any other reason, or a clip of 500 bp or more, are never
-    /// dropped); 0 disables the cap. For high-depth samples.
+    /// (reads selected for any other reason are never dropped; within a bin the
+    /// longest clips are kept). 0 disables the cap. For high-depth samples.
     #[arg(long, default_value_t = 0)]
     clip_cap: u32,
     /// Bin size in reference bp for --clip-cap.

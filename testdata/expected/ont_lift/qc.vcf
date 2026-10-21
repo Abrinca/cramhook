@@ -1,6 +1,6 @@
 ##fileformat=VCFv4.2
 ##format_version=1
-##source=cramhook qc 0.1.0
+##source=cramhook qc 0.1.1
 ##reference=cramhook-testdata-v1/ont/polished.fa
 ##cramhook_preset=lr:hq
 ##contig=<ID=1,length=1934799>

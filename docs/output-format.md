@@ -5,7 +5,7 @@ by igv.js (and any genome browser); the JSON files are meant for programs.
 
 ## Format version
 
-All outputs share one format version number, currently **2**:
+All outputs share one format version number, currently **1**:
 
 - every JSON file carries `"format_version": 1` as its first key;
 - the qc VCF carries a `##format_version=1` header line;
