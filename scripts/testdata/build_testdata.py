@@ -89,7 +89,7 @@ def main(argv=None):
         sh(f"seqtk sample -s {SEED} {src} {FRACTION[plat]} "
            f"| bgzip -l 9 -@ {args.threads} > reads.fastq.gz", d)
         cram = ref.replace(".fa", ".cram")
-        # exactly the input contract command shape (docs/lift.md)
+        # exactly the input contract command shape (docs/commands/lift.md)
         sh(f"minimap2 -ax {PRESET[plat]} -t {MAP_THREADS} --secondary=no -Y "
            f"{ref} reads.fastq.gz | samtools sort -O CRAM --reference {ref} "
            f"-o {cram}", d)

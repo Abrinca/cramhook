@@ -156,7 +156,7 @@ calls and found one additional true variant.
 Every output record carries `XL:A:T` (translated: coordinates moved, alignment kept) or `XL:A:R`
 (remapped by minimap2 against `new.fa`); `--no-xl-tag` omits it. Remapped records are exactly
 what minimap2 writes. On translated records, measured against a fresh remap on 9.2 M translated
-reads in 90 real cases ([results.md](../project/results.md), M10b):
+reads in 90 real cases ([results.md](https://github.com/Abrinca/cramhook/blob/main/docs/project/results.md), M10b):
 
 | tag | on translated reads |
 |---|---|
@@ -214,7 +214,7 @@ full remap of the reads onto that step's target by the `compare.py` equivalence 
 and supplementary, and A→B→A reproduces the original mapping. On the real data sets (70 cases,
 tuning, hold-out and `data/v2`) A→B→A→B equals A→B read for read, and A→B→A matches the original
 mapping in contig, strand and MAPQ for all 7.6 M reads (CIGAR-only differences from left-aligned
-`-` translations; see [decisions.md](../project/decisions.md), "Round trips on the real data sets").
+`-` translations; see [decisions.md](https://github.com/Abrinca/cramhook/blob/main/docs/project/decisions.md), "Round trips on the real data sets").
 
 ## CLI
 
@@ -258,7 +258,7 @@ cramhook lift --in old.cram --old-ref old.fa --new-ref new.fa --out new.cram \
 
 Each case is compared against a full remap with the same minimap2 command, using `--threads 16`.
 The full remap writes CRAM at samtools' default compression level. Details are in
-[results.md](../project/results.md).
+[results.md](https://github.com/Abrinca/cramhook/blob/main/docs/project/results.md).
 
 | set | build | cases | speedup median (range) |
 |-----|-------|-------|------------------------|

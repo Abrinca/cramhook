@@ -72,4 +72,4 @@ Cases, provenance and thresholds: [testdata/README.md](https://github.com/Abrinc
 | `scripts/fish_phage_eval.py` | fish phage demo: recall vs the oracle, myloasm reassembly |
 | `scripts/testdata/` | public test data: build, fetch, `release-check` |
 | `testdata/` | test-data manifest (URL, sha256), expected outputs, README |
-| `docs/project/plans/` (Plan-v1..v4), `docs/project/decisions.md`, `docs/project/results.md` | design history, decision log, measured results |
+| [`docs/project/plans/`](https://github.com/Abrinca/cramhook/tree/main/docs/project/plans) (Plan-v1..v4), [`docs/project/decisions.md`](https://github.com/Abrinca/cramhook/blob/main/docs/project/decisions.md), [`docs/project/results.md`](https://github.com/Abrinca/cramhook/blob/main/docs/project/results.md) | design history, decision log, measured results (repo only, not on this site) |

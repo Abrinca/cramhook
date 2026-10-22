@@ -4361,8 +4361,8 @@
           "printable": true,
           "children": [
             {
-              "id": 139,
-              "name": "bg-favicon",
+              "id": 138,
+              "name": "bg-favicon-circle",
               "appearance": {
                 "items": [
                   {
@@ -4374,89 +4374,6 @@
                         "r": 1.0,
                         "g": 1.0,
                         "b": 1.0
-                      }
-                    }
-                  },
-                  {
-                    "kind": "stroke",
-                    "paint": {
-                      "type": "none"
-                    },
-                    "width": 1.0
-                  }
-                ]
-              },
-              "kind": {
-                "type": "path",
-                "path": {
-                  "subpaths": [
-                    {
-                      "anchors": [
-                        {
-                          "p": [
-                            1953.418939299018,
-                            -151.14007255426594
-                          ]
-                        },
-                        {
-                          "p": [
-                            2465.7540212248427,
-                            -151.14007255426594
-                          ]
-                        },
-                        {
-                          "p": [
-                            2465.7540212248427,
-                            361.1950093715588
-                          ]
-                        },
-                        {
-                          "p": [
-                            1953.418939299018,
-                            361.1950093715588
-                          ]
-                        }
-                      ],
-                      "closed": true
-                    }
-                  ]
-                },
-                "live": {
-                  "shape": "rectangle",
-                  "w": 512.3350819258249,
-                  "h": 512.3350819258247,
-                  "radii": [
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0
-                  ],
-                  "xf": [
-                    1.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                    1953.418939299018,
-                    -151.14007255426594
-                  ]
-                }
-              }
-            },
-            {
-              "id": 138,
-              "name": "circle-favicon",
-              "visible": false,
-              "appearance": {
-                "items": [
-                  {
-                    "kind": "fill",
-                    "paint": {
-                      "type": "solid",
-                      "color": {
-                        "model": "rgb",
-                        "r": 1.0,
-                        "g": 0.7271148,
-                        "b": 0.7271148
                       }
                     }
                   },
@@ -9156,7 +9073,7 @@
       "copyrightNotice": "",
       "copyrightUrl": "",
       "created": 1792408566,
-      "modified": 1792660526
+      "modified": 1792661235
     },
     "last_view": {
       "name": "",

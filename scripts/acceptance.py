@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Acceptance checks for `cramhook lift` on the synthetic scenarios (docs/plans/Plan-v1.md §7).
+"""Acceptance checks for `cramhook lift` on the synthetic scenarios (docs/project/plans/Plan-v1.md §7).
 
 Usage:
   python scripts/acceptance.py [--only S1,S3] [--threads 16] [--out data/synthetic/acceptance]
 
 For each data/synthetic/<S>/<model> it runs `cramhook lift`, compares the result
-to the oracle with scripts/compare.py, and evaluates the `docs/plans/Plan-v1.md` section 7
+to the oracle with scripts/compare.py, and evaluates the `docs/project/plans/Plan-v1.md` section 7
 criteria C1-C5 (C6 is a reported metric, not a gate).  It writes a markdown
 summary and JSON into the output directory and exits non-zero if any gate fails.
 """

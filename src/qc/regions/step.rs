@@ -655,7 +655,7 @@ pub(crate) fn depth_step_regions(ctxs: &[ContigCtx], p: &QcParams, low_abs: u32,
         // artefact, not a coverage change. The filter runs *after* non-maximum
         // suppression (above), so a dropped peak cannot unmask a neighbour it
         // suppressed and every other call stays byte-identical; `depth_segment`
-        // pairing then uses the remaining steps. See docs/decisions.md "Depth
+        // pairing then uses the remaining steps. See docs/project/decisions.md "Depth
         // steps at the origin".
         if circular {
             let mut kept = Vec::with_capacity(peaks.len());

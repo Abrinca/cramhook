@@ -6,8 +6,13 @@ site_author = "Abrinca"
 copyright = "GPL-3.0-or-later &middot; Abrinca"
 docs_dir = "docs"
 site_dir = "site"
-# Logo source artwork (1.3 MB), not for the site.
-exclude_docs = "*.vectorcraft"
+# Not for the site: the logo source (1.3 MB) and the internal plans, decisions and results (kept in the repo).
+exclude_docs = """
+*.vectorcraft
+/project/plans/
+/project/decisions.md
+/project/results.md
+"""
 repo_url = "https://github.com/Abrinca/cramhook"
 repo_name = "Abrinca/cramhook"
 edit_uri = "edit/main/docs/"
@@ -35,14 +40,6 @@ nav = [
   { "Project" = [
     { "Development" = "project/development.md" },
     { "Test data" = "project/testdata.md" },
-    { "Decisions" = "project/decisions.md" },
-    { "Results" = "project/results.md" },
-    { "Plans" = [
-      { "Plan v1" = "project/plans/Plan-v1.md" },
-      { "Plan v2" = "project/plans/Plan-v2.md" },
-      { "Plan v3" = "project/plans/Plan-v3.md" },
-      { "Plan v4" = "project/plans/Plan-v4.md" },
-    ] },
   ] },
   { "Changelog" = "changelog.md" },
 ]

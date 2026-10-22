@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `docs/output-format.md` said the current format version was 2 while every output carries 1.
+- `docs/reference/output-formats.md` said the current format version was 2 while every output carries 1.
 
 ## [0.1.0] - 2026-10-19
 
@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cramhook translate` (classification only).
 - `--progress` on `lift`, `qc` and `fish`: machine-readable progress on stderr, one JSON object per
   line (`plan`, per-phase `start`/`update`/`end`, `done` or `error`; stream version 1, see
-  [docs/output-format.md](docs/output-format.md#progress-stream---progress)). `update` lines carry
+  [docs/reference/output-formats.md](https://github.com/Abrinca/cramhook/blob/main/docs/reference/output-formats.md#progress-stream---progress)). `update` lines carry
   `frac`, one line per whole percent at most, and in record passes `records`, `records_total` and
   `total_exact` (alignment records; exact totals from the CRAM container headers or the BAM index;
   with an exact total, `frac` also follows the records read, so the unmapped tail reaches 100 %).

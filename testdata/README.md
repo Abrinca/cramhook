@@ -12,7 +12,7 @@ pixi run build-testdata     # rebuild the tarball from the local sources (author
 ```
 
 `testdata/manifest.json` holds the download URL (the `testdata-v1` release asset on GitHub;
-until it is uploaded use `pixi run fetch-testdata --from dist/cramhook-testdata-v1.tar.gz`) and the
+to use a local copy instead, run `pixi run fetch-testdata --from dist/cramhook-testdata-v1.tar.gz`) and the
 tarball's sha256.
 
 ## Contents of `cramhook-testdata-v1.tar.gz` (78.9 MB)
@@ -40,7 +40,7 @@ local read sets (ONT 668 Mb = 321x, HiFi 430 Mb = 207x):
 ```bash
 seqtk sample -s 29080 <full ONT reads> 0.078  | bgzip -l 9 > ont/reads.fastq.gz
 seqtk sample -s 29080 <full HiFi reads> 0.121 | bgzip -l 9 > hifi/reads.fastq.gz
-# the input contract command (docs/lift.md), run inside ont/ and hifi/
+# the input contract command (docs/commands/lift.md), run inside ont/ and hifi/
 minimap2 -ax lr:hq   -t 8 --secondary=no -Y cons.fa reads.fastq.gz | samtools sort -O CRAM --reference cons.fa -o cons.cram
 minimap2 -ax map-hifi -t 8 --secondary=no -Y asm.fa  reads.fastq.gz | samtools sort -O CRAM --reference asm.fa  -o asm.cram
 # drop the @SQ UR:<absolute path> that htslib adds (no extra @PG), then index

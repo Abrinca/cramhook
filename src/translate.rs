@@ -6,7 +6,7 @@
 //! M2 supplies identity blocks and taint regions.
 //!
 //! Coordinates are 0-based half-open, matching the rest of the crate. Strand is
-//! the record's SAM orientation (`0x10`). See `docs/plans/Plan-v1.md` sections 4.2/4.3.
+//! the record's SAM orientation (`0x10`). See `docs/project/plans/Plan-v1.md` sections 4.2/4.3.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
@@ -31,7 +31,7 @@ use crate::paf::Strand;
 use crate::version::versioned;
 
 /// Tags a translatable record may carry (Plan section 2). `MD` is handled
-/// separately (decode artifact, see `docs/decisions.md`) and `s2` is read by
+/// separately (decode artifact, see `docs/project/decisions.md`) and `s2` is read by
 /// rule 3b but is not valid output; both are stripped from translated records by
 /// [`strip_translated_tags`].
 ///
@@ -3743,7 +3743,7 @@ fn add_xl(rec: &mut bam::Record) {
 /// Remove the aux tags a translated record must not carry, in a single pass over
 /// the aux data:
 ///
-/// * `MD` — the decode artifact (see `docs/decisions.md`); meaningless once the
+/// * `MD` — the decode artifact (see `docs/project/decisions.md`); meaningless once the
 ///   CIGAR has been rewritten.
 /// * `s2` — minimap2's best *competing* chain score on the **old** assembly. It
 ///   drifts with repeat/paralog content and cannot be recomputed by translation

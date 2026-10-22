@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare a lifted CRAM against the oracle mapping (docs/plans/Plan-v1.md §6.3).
+"""Compare a lifted CRAM against the oracle mapping (docs/project/plans/Plan-v1.md §6.3).
 
 Usage:
   python scripts/compare.py --test A.cram --test-ref A_REF.fa \

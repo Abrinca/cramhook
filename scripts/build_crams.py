@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build old.cram / oracle.cram / noise.cram for synthetic and real cases (docs/plans/Plan-v1.md §6.1/6.2).
+"""Build old.cram / oracle.cram / noise.cram for synthetic and real cases (docs/project/plans/Plan-v1.md §6.1/6.2).
 
 Usage:
   python scripts/build_crams.py {synthetic|real} [--threads 16] [--force] [--no-noise] [--only SUBSTR]

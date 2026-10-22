@@ -6,7 +6,7 @@ use crate::qc::*;
 
 // ---- Cross-contig clip links ------------------------------------------------
 //
-// Starting gates (not tuned; see `docs/decisions.md`): the partner cluster needs
+// Starting gates (not tuned; see `docs/project/decisions.md`): the partner cluster needs
 // at least this many reads and this share of the hotspot's clipped reads on the
 // matched side, and its breakpoints cluster within this many bp (leader
 // clustering).

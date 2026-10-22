@@ -1,7 +1,8 @@
-# cramhook
+# cramhook { .sr-only }
 
-![cramhook](img/logo/cramhook-light-logo.svg#only-light){ width="280" }
-![cramhook](img/logo/cramhook-dark-logo.svg#only-dark){ width="280" }
+<p class="hero-logo">
+  <img src="img/logo/cramhook-light-space.svg#only-light" alt="cramhook" width="360"><img src="img/logo/cramhook-dark-space.svg#only-dark" alt="cramhook" width="360">
+</p>
 
 **A fast, light workflow for long-read bacterial assemblies** (ONT R10 sup reads mapped with
 `lr:hq`, PacBio HiFi). `cramhook` checks where the reads disagree with an assembly and pulls out the

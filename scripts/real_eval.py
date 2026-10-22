@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate `cramhook lift` on the real cases (docs/plans/Plan-v1.md §7, M5).
+"""Evaluate `cramhook lift` on the real cases (docs/project/plans/Plan-v1.md §7, M5).
 
 Usage:
   python scripts/real_eval.py [--root data/real] [--only SUBSTR[,SUBSTR]]

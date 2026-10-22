@@ -1,5 +1,5 @@
 //! `--progress`: machine-readable progress on stderr, one JSON object per line
-//! (see docs/output-format.md, "Progress stream").
+//! (see docs/reference/output-formats.md, "Progress stream").
 //!
 //! A [`Progress`] handle is cheap to clone and safe to share between threads.
 //! When disabled ([`Progress::off`], the default) every method is a no-op
