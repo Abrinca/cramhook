@@ -156,7 +156,7 @@ calls and found one additional true variant.
 Every output record carries `XL:A:T` (translated: coordinates moved, alignment kept) or `XL:A:R`
 (remapped by minimap2 against `new.fa`); `--no-xl-tag` omits it. Remapped records are exactly
 what minimap2 writes. On translated records, measured against a fresh remap on 9.2 M translated
-reads in 90 real cases ([results.md](results.md), M10b):
+reads in 90 real cases ([results.md](../project/results.md), M10b):
 
 | tag | on translated reads |
 |---|---|
@@ -214,7 +214,7 @@ full remap of the reads onto that step's target by the `compare.py` equivalence 
 and supplementary, and A→B→A reproduces the original mapping. On the real data sets (70 cases,
 tuning, hold-out and `data/v2`) A→B→A→B equals A→B read for read, and A→B→A matches the original
 mapping in contig, strand and MAPQ for all 7.6 M reads (CIGAR-only differences from left-aligned
-`-` translations; see [decisions.md](decisions.md), "Round trips on the real data sets").
+`-` translations; see [decisions.md](../project/decisions.md), "Round trips on the real data sets").
 
 ## CLI
 
@@ -232,7 +232,7 @@ cramhook lift --in old.cram --old-ref old.fa --new-ref new.fa --out new.cram \
 | `--no-xl-tag` | off | omit the `XL:A:T` (translated) / `XL:A:R` (remapped) tag (`--xl-tag` is accepted and is the default) |
 | `--strict` | off | error on contract violation instead of remapping everything |
 | `--keep-tmp` | off | keep the diff and the deferred reads in `OUT.tmp/` |
-| `--progress` | off | machine-readable progress on stderr, one JSON object per line (phases `diff`, `translate_pass`, `writer_drain`, `sort_index`); see [output-format.md](output-format.md#progress-stream---progress) |
+| `--progress` | off | machine-readable progress on stderr, one JSON object per line (phases `diff`, `translate_pass`, `writer_drain`, `sort_index`); see [output-format.md](../reference/output-formats.md#progress-stream-progress) |
 | `--min-mapq`, `--max-s2-ratio`, `--max-de`, `--max-clip` (0 = unlimited), `--margin`, `--max-minus-indel`, `--max-zdrop` | see rules | eligibility thresholds |
 | `--clip-k`, `--clip-min-hits`, `--clip-min-len`, `--clip-flank`, `--unsafe-no-clip-screen` | 17, 2, 20, 0, off | clip screen |
 | `--t2-win`, `--t2-step`, `--t2-flank`, `--t2-junction-flank` | 10000, 2000, 10000, 50 | T2 windowing and junction taint (junction flank 0 disables it) |
@@ -244,7 +244,7 @@ cramhook lift --in old.cram --old-ref old.fa --new-ref new.fa --out new.cram \
 - The header has an `@SQ` line for every contig of `new.fa`. It keeps the original `@PG` lines and
   adds a `cramhook` `@PG` line with the command line and the remap command, plus an `argv=sh1`
   marker in its `DS` (a unique id per lift: `cramhook`, `cramhook.1`, …).
-- With `--stats`, a JSON file; its keys are listed in [output-format.md](output-format.md#lift-stats-json).
+- With `--stats`, a JSON file; its keys are listed in [output-format.md](../reference/output-formats.md#lift-stats-json).
 
 ### Debug subcommands
 
@@ -258,7 +258,7 @@ cramhook lift --in old.cram --old-ref old.fa --new-ref new.fa --out new.cram \
 
 Each case is compared against a full remap with the same minimap2 command, using `--threads 16`.
 The full remap writes CRAM at samtools' default compression level. Details are in
-[results.md](results.md).
+[results.md](../project/results.md).
 
 | set | build | cases | speedup median (range) |
 |-----|-------|-------|------------------------|

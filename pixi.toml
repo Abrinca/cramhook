@@ -95,3 +95,6 @@ real-smoke = "python scripts/real_smoke.py"
 fetch-testdata = "python scripts/testdata/fetch_testdata.py"
 build-testdata = "python scripts/testdata/build_testdata.py"
 release-check = "python scripts/testdata/release_check.py"
+# documentation site (zensical.toml; deployed by .github/workflows/docs.yml)
+docs-serve = "uvx zensical serve"
+docs-build = "uvx zensical build --clean --strict"

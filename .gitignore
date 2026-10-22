@@ -17,3 +17,6 @@ __pycache__/
 /dist/
 /testdata/data/
 /docs/img/logo/*.png
+/site/
+# Zensical build cache (it drops its own `.gitignore` with `*` inside).
+/.cache/

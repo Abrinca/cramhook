@@ -21,7 +21,7 @@ pixi run build-testdata           # rebuild the tarball from the local sources (
 `release-check` exits nonzero when a test or an invariant fails (lift equals a full remap,
 qc flags the prophage on ONT and HiFi, `fish --bait` recall); the diff against
 `testdata/expected/` is informational only. `--no-cargo-test` skips the cargo tests (~12 s then).
-Cases, provenance and thresholds: [testdata/README.md](../testdata/README.md).
+Cases, provenance and thresholds: [testdata/README.md](https://github.com/Abrinca/cramhook/blob/main/testdata/README.md).
 
 ## Tests
 
@@ -59,7 +59,7 @@ Cases, provenance and thresholds: [testdata/README.md](../testdata/README.md).
 | `src/qc/{circularity,junctions,link,crispr,output,stats,test_util}.rs` | circularity verdicts, split-read/cross-contig event extraction, linkage pass, CRISPR annotation (`--crispr`), VCF/BED/JSON/BEDGRAPH writers, statistics, test helpers |
 | `src/fish.rs` | fish selection, reasons table, `--bait` lift |
 | `src/contract.rs` | header and `@PG` contract |
-| `src/version.rs` | the shared output `format_version` (see [output-format.md](output-format.md)) |
+| `src/version.rs` | the shared output `format_version` (see [output-format.md](../reference/output-formats.md)) |
 | `src/progress.rs` | the `--progress` stream: `Progress` handle, chunk and reference-position fractions |
 | `src/cramcount.rs` | record count of a CRAM (container headers) or indexed BAM (index stats), for the `--progress` totals |
 | `src/paf.rs`, `src/coords.rs`, `src/fasta.rs`, `src/main.rs` | PAF/`cs` parsing, typed coordinates, FASTA, CLI |
@@ -72,4 +72,4 @@ Cases, provenance and thresholds: [testdata/README.md](../testdata/README.md).
 | `scripts/fish_phage_eval.py` | fish phage demo: recall vs the oracle, myloasm reassembly |
 | `scripts/testdata/` | public test data: build, fetch, `release-check` |
 | `testdata/` | test-data manifest (URL, sha256), expected outputs, README |
-| `docs/plans/` (Plan-v1..v4), `docs/decisions.md`, `docs/results.md` | design history, decision log, measured results |
+| `docs/project/plans/` (Plan-v1..v4), `docs/project/decisions.md`, `docs/project/results.md` | design history, decision log, measured results |

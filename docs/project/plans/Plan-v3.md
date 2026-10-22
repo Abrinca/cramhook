@@ -3,7 +3,7 @@
 > The tool was renamed from cramlift to cramhook on 2026-10-19.
 
 > Historical design document (Plan v3, 2026-10-11). Implemented; the decisions and measured
-> results are in `docs/decisions.md` and `docs/qc-validation.md`.
+> results are in `docs/project/decisions.md` and `docs/validation/qc-validation.md`.
 
 Status: draft, refined with the user after reading CRAQ, Inspector, Flagger, Clair3, NucFreq and
 bcftools (reports: `scratch/manager/v3refs/*.md`; paper + code reading only, nothing run).

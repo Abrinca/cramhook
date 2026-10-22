@@ -2,8 +2,8 @@
 
 > The tool was renamed from cramlift to cramhook on 2026-10-19.
 
-> Historical design document (Plan v1, 2026-10-07). Superseded by `docs/plans/Plan-v3.md`;
-> the decisions and measured results are in `docs/decisions.md`.
+> Historical design document (Plan v1, 2026-10-07). Superseded by `docs/project/plans/Plan-v3.md`;
+> the decisions and measured results are in `docs/project/decisions.md`.
 
 ## 1. Goal
 
@@ -294,7 +294,7 @@ Work one milestone at a time. After each: commit, then **stop and report** (what
 test results, deviations, open questions).
 
 - **M0 — Workspace setup.** Done.
-- **M1 — Test data + oracle.** Done (results in `docs/results.md`). `simulate.py` for S1–S12, both read models; pixi tasks to build
+- **M1 — Test data + oracle.** Done (results in `docs/project/results.md`). `simulate.py` for S1–S12, both read models; pixi tasks to build
   `old.cram`/`oracle.cram` for synthetic and real cases; `compare.py` (validated by comparing the
   oracle with itself and with the baseline-noise run). Report the baseline noise.
 - **M2 — Diff.** `cramlift diff`: PAF/cs parsing, identity blocks, taint T1/T2, BED output.
@@ -308,9 +308,9 @@ test results, deviations, open questions).
   Meet the synthetic acceptance criteria.
 - **M5 — Real data.** Run all real cases, compare with oracles, benchmark, tune thresholds per
   preset (`de`, clip, margin, taint parameters) using deferral-reason stats. Record results in
-  `docs/results.md`.
+  `docs/project/results.md`.
 - **M6 — ONT speed on larger datasets** (scoped with the user 2026-10-09; see
-  `docs/decisions.md` "M6 scope"). Target use case: very similar assemblies built from the same
+  `docs/project/decisions.md` "M6 scope"). Target use case: very similar assemblies built from the same
   raw reads; test proxy = raw assembler output → consensus (slightly harder). Goal: maximal
   speedup on non-tiny ONT datasets; tiny datasets get an automatic full-remap fallback.
   1. Build the M6 ONT set: all 11 samples of `$DATA_ROOT/ont`,
@@ -338,7 +338,7 @@ is not a goal.
 - Do not work in global dirs like `/var/tmp` or `/tmp`. Work in `./scratch/{agent-slug}/`.
 - Correctness over speed: if a rule is unclear, defer the read.
 - Never weaken an acceptance criterion or edit a test just to make it pass; report instead.
-- Keep `docs/decisions.md`: one short entry per non-obvious decision (what, why, alternatives).
+- Keep `docs/project/decisions.md`: one short entry per non-obvious decision (what, why, alternatives).
 - Do not modify anything in `ref/`. Do not commit `data/`.
 - Pin crate versions; when an API is unclear, read the pinned source/docs.
 - Ask before adding dependencies outside pixi/Cargo or changing the input contract.

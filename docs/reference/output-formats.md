@@ -13,7 +13,7 @@ All outputs share one format version number, currently **1**:
   (BED and TSV files start with one `#`-prefixed or plain column-name line; the bedGraph has none).
 
 Any change to fields, keys, columns or the set of output files bumps the version and is recorded in
-[CHANGELOG.md](../CHANGELOG.md). Coordinates in BED, bedGraph and TSV files are 0-based, half-open;
+[CHANGELOG.md](https://github.com/Abrinca/cramhook/blob/main/CHANGELOG.md). Coordinates in BED, bedGraph and TSV files are 0-based, half-open;
 VCF `POS` is 1-based. One exception: the `sa` column of `P.fish.tsv` copies positions from the SAM
 `SA` tag unchanged, so they are **1-based** (the `pos` column of the same file is 0-based).
 
@@ -34,7 +34,7 @@ VCF `POS` is 1-based. One exception: the `sa` column of `P.fish.tsv` copies posi
 | `fish` | `P.fish.json` | [JSON](#pfishjson) |
 | `fish` | `P.bait_ref.fa`, `P.bait.cram` (with `--bait`) | [FASTA, CRAM](#pbait_reffa-pbaitcram) |
 
-With `--progress`, `lift`, `qc` and `fish` also write a [progress stream](#progress-stream---progress)
+With `--progress`, `lift`, `qc` and `fish` also write a [progress stream](#progress-stream-progress)
 to stderr.
 
 The debug subcommands write JSON with the same `format_version` first key (`cramhook diff`:
@@ -51,7 +51,7 @@ other files are not part of the public format.
   adds a `cramhook` `@PG` line with the command line and the remap command, plus an `argv=sh1`
   marker in its `DS` (a unique id per lift: `cramhook`, `cramhook.1`, …).
 - Every record carries `XL:A:T` (translated) or `XL:A:R` (remapped) unless `--no-xl-tag`; `s2` is
-  removed from translated records. See [lift.md](lift.md#tags-on-translated-reads).
+  removed from translated records. See [lift.md](../commands/lift.md#tags-on-translated-reads).
 
 ### lift stats JSON
 
@@ -67,7 +67,7 @@ Written with `--stats`: counts, deferrals by reason, parameters, per-phase timin
 | `deferred_reads` | reads sent to the remap |
 | `remapped_reads` | primary records produced by the remap minimap2 |
 | `out_primary_records` | primary records written (translated + remapped) |
-| `deferred_by_reason`, `deferred_by_class` | deferral counts by reason (see [eligibility rules](lift.md#eligibility-rules)) and by class |
+| `deferred_by_reason`, `deferred_by_class` | deferral counts by reason (see [eligibility rules](../commands/lift.md#eligibility-rules)) and by class |
 | `origin_crossing_translated`, `origin_crossing_deferred` | origin-crossing split reads |
 | `qual_missing` | records without QUAL |
 | `fallback` | `null`, or the tiny-input fallback: `reason` (`tiny_input`), `input_bytes`, `threshold_bytes`. A tiny-input fallback leaves `contract_ok` true and `contract_reason` null |
@@ -150,7 +150,7 @@ a `depth_segment` within `--finding-link-max` (default 100 kb; the shorter way r
 contig) are **linked**: the two ends pool, together with every tiered call inside the span, into one
 finding (tier = the highest member tier; `--finding-link-max 0` disables linking and gives the plain
 grouping). Header line `#contig start end label score tier likely extra`. Columns contig, start,
-end, label (`finding_<n>`), score, tier, `likely` (see [qc.md](qc.md#likely-hint)), extra. The
+end, label (`finding_<n>`), score, tier, `likely` (see [qc.md](../commands/qc.md#likely-hint)), extra. The
 extra column holds `evidence=<list>;members=<label>:<count>,…;lowcov=<0|1>`. A finding that wraps
 the origin of a circular contig is written as two rows with the same `finding_<n>` id. A finding
 that holds one end of a cross-contig clip link also carries
@@ -247,7 +247,7 @@ finding (numeric `finding_<n>`, `.` last). Columns `read`, `length`, `reason`, `
 targets as `contig:pos:strand`, or `.`). Per read and reason, it keeps the largest event per
 distinct finding (including `.` for events outside every finding; ties: smallest position, primary
 over supplementary). A read with evidence in two findings, or inside one and outside all, gets one
-row each. The `detail` values per reason are listed in [fish.md](fish.md#selection).
+row each. The `detail` values per reason are listed in [fish.md](../commands/fish.md#selection).
 
 ### P.fish.json
 
@@ -258,7 +258,7 @@ thresholds used, and timing. Top-level keys:
 |---|---|
 | `format_version` | 1 |
 | `reads` | `reads`, `bp` (distinct selected reads, summed length) and `by_reason` (per reason: `reads`, `bp`; a read can count under more than one) |
-| `cap` | reads dropped by `--clip-cap`: `reads`, `bp` (summed read length); zeros when the cap is off. Dropped reads are not in `reads` or the outputs; see [fish.md](fish.md#capping-clip-reads) |
+| `cap` | reads dropped by `--clip-cap`: `reads`, `bp` (summed read length); zeros when the cap is off. Dropped reads are not in `reads` or the outputs; see [fish.md](../commands/fish.md#capping-clip-reads) |
 | `records` | input record counts: `total`, `primary`, `supplementary`, `secondary`, `duplicate`, `qcfail`, `unmapped`, `mapped_bp`, `unmapped_bp` |
 | `params` | `scope`, `min_tier`, `finding_pad`, `unmapped`, `clips`, `indels`, `linked`, `bait`, `locus`, `locus_flank`, `clip_min_len`, `indel_min_len`, `indel_merge_gap`, `indel_piece_min`, `clip_cap` (0 = off), `clip_bin` |
 | `bait` | `null` without `--bait`; see below |

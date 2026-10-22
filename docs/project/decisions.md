@@ -1501,7 +1501,7 @@ incl. junction45/50/55 supplementaries; first lift `--clip-min-hits 100000` → 
   ignores an end overlap, so the verdict depends on which repeat copy the aligner chose). The gain
   was 3 genuine near-end junctions; the user's fallback criteria (no remaining high/medium findings,
   false alarms not above s33) were not met. Master's 2 kb exclusion stays; the limitation is
-  documented in `docs/qc-validation.md` §8.
+  documented in `docs/validation/qc-validation.md` §8.
 - **Parked:** the full change (`scratch/origin-cont/parked/origin-only-and-continuation.patch`
   against `BASE`, plus `origin.rs`), the prototype, and the review reproductions
   (`scratch/origin-cont/review2/`). Picking it up needs the two open findings fixed and, ideally, a

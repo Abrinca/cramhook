@@ -1,13 +1,15 @@
 <h1 align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo/logo-cramhook-dark-full.svg">
-    <img src="docs/img/logo/logo-cramhook-light-full.svg" alt="cramhook" width="360">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo/cramhook-dark-logo.svg">
+    <img src="docs/img/logo/cramhook-light-logo.svg" alt="cramhook" width="280">
   </picture>
 </h1>
 
 **A fast, light workflow for long-read bacterial assemblies** (ONT R10 sup reads mapped with
 `lr:hq`, PacBio HiFi): check where the reads disagree with an assembly and pull out the reads that
 explain it, without remapping everything after each assembly revision.
+
+**Documentation: <https://abrinca.github.io/cramhook/>**
 
 | command | what it does |
 |---|---|
@@ -18,7 +20,7 @@ explain it, without remapping everything after each assembly revision.
 Together they replace a full remap + Clair3 + Sniffles2 (+ a second remap to select reads). On one
 ONT isolate with a phage missing from the new assembly, the whole workflow including reassembly
 took **17.0 s instead of 98.7 s wall** (5.8×, 127.0 s instead of 644.6 s CPU) and recovered the
-full phage sequence: see the [case study](docs/case-study-phage-FAM20853.md).
+full phage sequence: see the [case study](docs/case-studies/phage-FAM20853.md).
 
 ## Install
 
@@ -54,7 +56,7 @@ myloasm fish.fastq.gz -o reasm
 
 Use `map-hifi` instead of `lr:hq` for PacBio HiFi. Without an assembly revision, skip `lift`: index
 the mapping (`samtools index old.cram`) and run `qc` and `fish` on it directly. The input contract
-(which minimap2 options, which `@PG` lines) is described in [docs/lift.md](docs/lift.md#input-contract).
+(which minimap2 options, which `@PG` lines) is described in [docs/commands/lift.md](docs/commands/lift.md#input-contract).
 
 ## Outputs at a glance
 
@@ -77,23 +79,23 @@ the mapping (`samtools index old.cram`) and run `qc` and `fish` on it directly. 
 
 The VCF and BED files load in IGV / igv.js; the JSON files are for programs. All of them share one
 format version (`format_version` in JSON, `##format_version` in the VCF). Every column and key is
-documented in [docs/output-format.md](docs/output-format.md).
+documented in [docs/reference/output-formats.md](docs/reference/output-formats.md).
 
 ## Documentation
 
-- [docs/lift.md](docs/lift.md): how `lift` works, input contract, eligibility rules, lifted-input
+- [docs/commands/lift.md](docs/commands/lift.md): how `lift` works, input contract, eligibility rules, lifted-input
   chains, CLI, performance and validation, debug subcommands
-- [docs/qc.md](docs/qc.md): `qc` signals, tiers and FILTER, `likely` hint, linkage, performance,
+- [docs/commands/qc.md](docs/commands/qc.md): `qc` signals, tiers and FILTER, `likely` hint, linkage, performance,
   limitations
-- [docs/fish.md](docs/fish.md): `fish` selection, `--bait`, `--bait-records`, the phage demo
-- [docs/output-format.md](docs/output-format.md): every output file, the format version
-- [docs/case-study-phage-FAM20853.md](docs/case-study-phage-FAM20853.md): the workflow versus
+- [docs/commands/fish.md](docs/commands/fish.md): `fish` selection, `--bait`, `--bait-records`, the phage demo
+- [docs/reference/output-formats.md](docs/reference/output-formats.md): every output file, the format version
+- [docs/case-studies/phage-FAM20853.md](docs/case-studies/phage-FAM20853.md): the workflow versus
   remap + Clair3 + Sniffles2 on a real ONT dataset
-- [docs/qc-validation.md](docs/qc-validation.md): `qc` validation on planted errors and
+- [docs/validation/qc-validation.md](docs/validation/qc-validation.md): `qc` validation on planted errors and
   raw → polished truth sets
-- [docs/development.md](docs/development.md): tests and source layout
-- [docs/results.md](docs/results.md), [docs/decisions.md](docs/decisions.md),
-  [docs/plans/](docs/plans/): measured results, decision log, plans
+- [docs/project/development.md](docs/project/development.md): tests and source layout
+- [docs/project/results.md](docs/project/results.md), [docs/project/decisions.md](docs/project/decisions.md),
+  [docs/project/plans/](docs/project/plans/): measured results, decision log, plans
 - [CHANGELOG.md](CHANGELOG.md)
 
 ## Development
@@ -106,7 +108,7 @@ pixi run sim && pixi run crams-synthetic && pixi run accept   # synthetic accept
 ```
 
 Real-data runs, the test targets and the source layout are in
-[docs/development.md](docs/development.md).
+[docs/project/development.md](docs/project/development.md).
 
 ## License
 

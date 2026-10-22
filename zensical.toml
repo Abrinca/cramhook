@@ -1,0 +1,135 @@
+[project]
+site_name = "cramhook"
+site_url = "https://abrinca.github.io/cramhook/"
+site_description = "Translate long-read alignments between bacterial assemblies, flag where the reads disagree, and extract the reads behind the flags."
+site_author = "Abrinca"
+copyright = "GPL-3.0-or-later &middot; Abrinca"
+docs_dir = "docs"
+site_dir = "site"
+# Logo source artwork (1.3 MB), not for the site.
+exclude_docs = "*.vectorcraft"
+repo_url = "https://github.com/Abrinca/cramhook"
+repo_name = "Abrinca/cramhook"
+edit_uri = "edit/main/docs/"
+
+extra_css = ["stylesheets/extra.css"]
+
+nav = [
+  { "Home" = "index.md" },
+  { "Install" = "install.md" },
+  { "Quick start" = "quickstart.md" },
+  { "Commands" = [
+    { "lift" = "commands/lift.md" },
+    { "qc" = "commands/qc.md" },
+    { "fish" = "commands/fish.md" },
+  ] },
+  { "Reference" = [
+    { "Output formats" = "reference/output-formats.md" },
+  ] },
+  { "Case studies" = [
+    { "Recovering a missed phage (ONT FAM20853)" = "case-studies/phage-FAM20853.md" },
+  ] },
+  { "Validation" = [
+    { "qc validation" = "validation/qc-validation.md" },
+  ] },
+  { "Project" = [
+    { "Development" = "project/development.md" },
+    { "Test data" = "project/testdata.md" },
+    { "Decisions" = "project/decisions.md" },
+    { "Results" = "project/results.md" },
+    { "Plans" = [
+      { "Plan v1" = "project/plans/Plan-v1.md" },
+      { "Plan v2" = "project/plans/Plan-v2.md" },
+      { "Plan v3" = "project/plans/Plan-v3.md" },
+      { "Plan v4" = "project/plans/Plan-v4.md" },
+    ] },
+  ] },
+  { "Changelog" = "changelog.md" },
+]
+
+# Values for template overrides. `theme.logo` is a single file, so the
+# dark-palette logo (light glyphs) is passed separately; the override of
+# `partials/logo.html` renders both and `stylesheets/extra.css` swaps them by
+# palette.
+[project.extra]
+logo_dark = "img/logo/cramhook-dark-logo.svg"
+
+# Link checking at build time (`zensical build --strict` in CI would fail on issues).
+[project.validation]
+invalid_links = true
+invalid_link_anchors = true
+
+[project.theme]
+language = "en"
+logo = "img/logo/cramhook-light-logo.svg"
+# Mark only, dark on an opaque white square: visible on light and dark tabs.
+favicon = "img/logo/favicon.svg"
+# Template overrides: `overrides/partials/logo.html` renders the light and the
+# dark logo, so the palette swap is CSS-only and works in every browser.
+# https://zensical.org/docs/customization/#configuring-overrides
+custom_dir = "overrides"
+features = [
+  "content.action.edit",
+  "content.action.view",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.code.select",
+  "content.footnote.tooltips",
+  "content.tabs.link",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.tabs",
+  "navigation.tabs.sticky",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to system preference"
+
+[project.markdown_extensions]
+abbr = {}
+admonition = {}
+attr_list = {}
+def_list = {}
+footnotes = {}
+md_in_html = {}
+toc.permalink = true
+pymdownx.details = {}
+pymdownx.highlight.anchor_linenums = true
+pymdownx.highlight.line_spans = "__span"
+pymdownx.highlight.pygments_lang_class = true
+pymdownx.inlinehilite = {}
+# Mermaid diagrams (docs/index.md, docs/commands/lift.md): Zensical initialises
+# its Mermaid runtime for any fence rendered with class "mermaid".
+# https://zensical.org/docs/authoring/diagrams/
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+pymdownx.tabbed.alternate_style = true
+pymdownx.tabbed.combine_header_slug = true
+pymdownx.tasklist.custom_checkbox = true
+# docs/changelog.md and docs/project/testdata.md include files from the repository
+# root (`CHANGELOG.md`, `testdata/README.md`); "." is the directory holding
+# zensical.toml, i.e. the repository root.
+pymdownx.snippets.base_path = ["."]

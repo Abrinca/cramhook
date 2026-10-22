@@ -1,0 +1,27 @@
+/*
+ * Logo: overrides/partials/logo.html renders a light and a dark <img> in both the
+ * header and the mobile drawer; show exactly one, keyed on the palette.
+ * `!important` because the theme's `display: block` on drawer logo images has
+ * equal specificity.
+ */
+.md-logo img.cramhook-logo--dark,
+[data-md-color-scheme="slate"] .md-logo img.cramhook-logo--light {
+  display: none !important;
+}
+
+[data-md-color-scheme="slate"] .md-logo img.cramhook-logo--dark {
+  display: block !important;
+}
+
+/* The wordmark is wide (448 x 248): let it keep its aspect ratio instead of the
+ * theme's square icon box (header and drawer). */
+.md-logo,
+.md-nav .md-nav__title[for="__drawer"] .md-logo {
+  width: auto;
+}
+
+.md-logo img.cramhook-logo {
+  width: auto;
+  max-width: none;
+  height: 1.6rem;
+}

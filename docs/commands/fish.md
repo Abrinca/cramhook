@@ -19,7 +19,7 @@ cramhook fish --in old.cram --ref asm.fa --out-prefix P [--threads N] [--linear 
 |------|---------|---------|
 | `--clip-cap N` | `0` (off) | keep at most `N` clip-selected reads per bin of `--clip-bin` reference bp; see [Capping clip reads](#capping-clip-reads) |
 | `--clip-bin BP` | `2000` | bin size for `--clip-cap`; `0` is an error (`--clip-bin must be positive`) |
-| `--progress` | off | machine-readable progress on stderr, one JSON object per line (phases `pass`, `bait_lift` with `--bait`, `payload`, `output`); see [output-format.md](output-format.md#progress-stream---progress) |
+| `--progress` | off | machine-readable progress on stderr, one JSON object per line (phases `pass`, `bait_lift` with `--bait`, `payload`, `output`); see [output-format.md](../reference/output-formats.md#progress-stream-progress) |
 
 ## Selection
 
@@ -109,7 +109,7 @@ only when its **primary** record is on a bait contig; reads that reach the bait 
 supplementary record are dropped. This matters when the supplementary-only molecules pull a
 reassembly off a clean circle: on the FAM20853 demo the 9 such reads are the difference between B'
 and the standard workflow's single circular contig (see
-[case-study-phage-FAM20853.md](case-study-phage-FAM20853.md)). The `bait` block of `P.fish.json`
+[case-study-phage-FAM20853.md](../case-studies/phage-FAM20853.md)). The `bait` block of `P.fish.json`
 always records `mode` and the number of supplementary-only reads; an absent flag and an explicit
 `--bait-records any` are equivalent.
 
@@ -124,7 +124,7 @@ always records `mode` and the number of supplementary-only reads; an absent flag
 | `P.bait.cram` (with `--bait`) | the bait lift, with index |
 
 The TSV and the decompressed FASTQ are byte-identical across thread counts (only the JSON's timing
-differs). Columns and keys: [output-format.md](output-format.md#fish).
+differs). Columns and keys: [output-format.md](../reference/output-formats.md#fish).
 
 ## Demo: recovering a phage missing from an assembly
 
@@ -133,8 +133,10 @@ A worked example of `qc` + `fish --bait` + reassembly. PacBio HiFi reads of two 
 phage is integrated in the chromosome as a prophage and is also present as free circular copies.
 The curated assembly has the phage as an extra contig. The data are local, not in the repo.
 
-The full write-up — standard workflow versus `cramhook`, wall/CPU time, read selection and the
-reassembly outcome — is [case-study-phage-FAM20853.md](case-study-phage-FAM20853.md).
+A separate case study, [phage-FAM20853.md](../case-studies/phage-FAM20853.md), runs the complete
+workflow (`lift` / `qc` / `fish --bait` / reassembly) on a different experiment: **ONT** reads of
+FAM20853 only, not the HiFi demo above. It compares it with a standard minimap2 + Clair3 +
+Sniffles2 script (wall/CPU time, read selection, reassembly outcome).
 
 ```bash
 # 1. map the reads (-Y is required by fish: supplementary records must carry SEQ)

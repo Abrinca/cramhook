@@ -1,7 +1,7 @@
 # Results
 
 > Historical measurement log (lift, milestones M1-M11, 2026-10-07..11). Current qc/lift numbers
-> are in `docs/qc-validation.md` and `docs/decisions.md`.
+> are in `docs/validation/qc-validation.md` and `docs/project/decisions.md`.
 
 ## M1 — test data, oracle, baseline noise, feasibility probe (2026-10-07)
 
@@ -139,7 +139,7 @@ hold-out 82.2 %.
 - pacbio FAM29030 canu/pbipa (1.1–1.3×), FAM29046 minipolish (1.35×), ont FAM20866 raven (1.8×):
   the primary assemblies carry differing repeat copies, so T2 taints 17–48 k reads (correctly).
 
-**Tuning:** see `docs/decisions.md` (M5). The clip limit was not raised (unsafe on real data even with
+**Tuning:** see `docs/project/decisions.md` (M5). The clip limit was not raised (unsafe on real data even with
 the screen). Candidates that were neutral on tuning (margin 250, de 0.02/0.05) were worse on hold-out
 ONT, so the defaults stay. New rules found via validation: competitor (s2/s1) for MAPQ instability,
 and the '-' block large-indel rule for structural direction effects.

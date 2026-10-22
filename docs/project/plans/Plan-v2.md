@@ -3,7 +3,7 @@
 > The tool was renamed from cramlift to cramhook on 2026-10-19.
 
 > Historical design document (Plan v2, 2026-10-09). Completed and superseded by
-> `docs/plans/Plan-v3.md`; the decisions and measured results are in `docs/decisions.md`.
+> `docs/project/plans/Plan-v3.md`; the decisions and measured results are in `docs/project/decisions.md`.
 
 ## Where v1 stands
 
@@ -119,7 +119,7 @@ record rebuild (`Record::set`/`bam_set1`) 34 %, `translate_one` 29 %, memmove 10
 
 ## Working rules
 
-Unchanged from `docs/plans/Plan-v1.md` §10:
+Unchanged from `docs/project/plans/Plan-v1.md` §10:
 - One milestone at a time; commit, then stop and report.
 - Never weaken a correctness gate silently.
 - Scratch only under `./scratch/`; never write outside the repo.

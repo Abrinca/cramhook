@@ -33,7 +33,10 @@ Both use the same bait file and 16 threads; both end with `myloasm` on the selec
 minimap2 -ax lr:hq -t 16 --secondary=no -Y new.fa reads.fastq.gz \
   | samtools sort -@ 16 -O CRAM --reference new.fa -o std.cram -
 samtools index std.cram
-# 2. variant calling - Clair3 (ONT r1041 sup v520) + 3. Sniffles2 (defaults)
+# 2. variant calling - Clair3 needs a BAM: convert and index first (A2prep), then run Clair3
+samtools view -b -T new.fa -@ 16 -o std.bam std.cram
+samtools index -@ 16 std.bam
+#    Clair3 (ONT r1041 sup v520) + 3. Sniffles2 (defaults)
 pixi run -e testing-clair3 run_clair3.sh --bam_fn std.bam --ref_fn new.fa \
   --threads 16 --platform ont --model_path .../r1041_e82_400bps_sup_v520 \
   --output clair3 --include_all_ctgs --haploid_sensitive --sample_name sample
@@ -44,6 +47,7 @@ pixi run -e testing-sniffles2 sniffles --input std.cram --reference new.fa \
 cat new.fa phage.fa > combined.fa
 minimap2 -ax lr:hq -t 16 --secondary=no -Y combined.fa reads.fastq.gz \
   | samtools sort -@ 16 -O CRAM --reference combined.fa -o bait.cram -
+samtools index -@ 16 bait.cram
 samtools view -u bait.cram FAM20853-p1-1.1_scf3 | samtools fastq - | gzip > phage_reads.fastq.gz
 samtools fastq -f 4 -n std.cram | gzip > unmapped.fastq.gz
 cat phage_reads.fastq.gz unmapped.fastq.gz > combined_reads.fastq.gz
@@ -79,11 +83,11 @@ Machine: **AMD Ryzen 7 7800X3D** (8 cores / 16 threads SMT), **31.7 GB RAM**, ot
 (run1-3), B of 2 runs (run3-4).  Per-step numbers are medians of the *step*, so stage medians
 may differ by <0.1 s from the median of totals.
 
-![Wall-clock time per workflow](img/case-study/speed-wall.png)
+![Wall-clock time per workflow](../img/case-study/speed-wall.png)
 
-![CPU time per workflow](img/case-study/speed-cpu.png)
+![CPU time per workflow](../img/case-study/speed-cpu.png)
 
-![Per-stage speedup](img/case-study/speedup.png)
+![Per-stage speedup](../img/case-study/speedup.png)
 
 | stage (A / B) | A wall s | A CPU s | A peak RSS GB | B wall s | B CPU s | B peak RSS GB | speedup |
 |---|---|---|---|---|---|---|---|
@@ -248,7 +252,8 @@ chromosome-wide band.
 * **Coverage/identity** come from `minimap2 -cx asm20` of the myloasm contigs against the bait;
   `circular` is myloasm's own flag.
 * **myloasm is one assembler**; "recovered" here means "a contig covering the bait at ~100%
-  identity", which all three workflows achieve.  Only A's is circular and chromosome-free.
+  identity", which all four variants achieve.  Only A and B″ give the clean circular 40,865 bp
+  contig; B and B' are longer and non-circular (see the reassembly table).
 
 ## Reproduce
 

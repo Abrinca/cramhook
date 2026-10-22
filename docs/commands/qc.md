@@ -7,9 +7,9 @@ classify structural variants beyond the `likely=` hint (a label that never chang
 
 ## Input
 
-A coordinate-sorted, indexed BAM or CRAM mapped to the assembly with minimap2, using
-`--preset lr:hq` (accurate ONT) or `map-hifi` (PacBio HiFi); the preset is read from the minimap2
-`@PG` line unless `--preset` is given. Supplementary alignments count toward depth, base counts
+A coordinate-sorted, indexed BAM or CRAM mapped to the assembly with `minimap2 -ax lr:hq`
+(accurate ONT) or `minimap2 -ax map-hifi` (PacBio HiFi). `qc` detects the preset from the minimap2
+`@PG` line; cramhook's own `--preset lr:hq|map-hifi` overrides that detection. Supplementary alignments count toward depth, base counts
 and clips; secondary, duplicate and QC-fail records are skipped. Hard clips are accepted.
 
 ## Quick start
@@ -24,7 +24,7 @@ cramhook qc --in old.cram --ref old.fa --preset lr:hq --out-prefix q --candidate
 | `--candidates` | off | also write `q.candidates.tsv` |
 | `--crispr` | off | annotate CRISPR arrays detected in `--ref` (annotation only; see below) |
 | `--gc-window` | 100 | GC track window in bp (`q.gc.bedgraph`); `0` disables the file |
-| `--progress` | off | machine-readable progress on stderr, one JSON object per line (phases `scan`, `circularity`, `call`, `linkage`, `output`); see [output-format.md](output-format.md#progress-stream---progress) |
+| `--progress` | off | machine-readable progress on stderr, one JSON object per line (phases `scan`, `circularity`, `call`, `linkage`, `output`); see [output-format.md](../reference/output-formats.md#progress-stream-progress) |
 
 The thresholds (`--min-depth`, `--fdr`, `--clip-*`, `--depth-*`, `--link-*`, …) are listed by
 `cramhook qc --help`.
@@ -45,7 +45,7 @@ With `--out-prefix q`, qc writes:
 | `q.haplotypes.tsv` | one row per (haplotype group, read); `fish` selects from it |
 
 Every column, INFO field and JSON key, with example lines, is in
-[output-format.md](output-format.md#qc).
+[output-format.md](../reference/output-formats.md#qc).
 
 ## Signals
 
@@ -130,7 +130,7 @@ The `likely` column of `findings.bed` comes from a fixed rule table — `collaps
 `false_duplication`, `extra_sequence`, `missing_sequence`, `misjoin`, `depth_change`, `base_error`,
 `mixed`, `minority`, `subpopulation`, `unclear` — and never changes a tier. On the planted errors it
 is right for 100 % of duplications and inversions, 92–98 % of deletions, random insertions, swaps,
-SNPs and small indels, and 10 of 12 collapses ([qc-validation.md](qc-validation.md), §4). A
+SNPs and small indels, and 10 of 12 collapses ([qc-validation.md](../validation/qc-validation.md), §4). A
 `linked_haplotype` finding is `subpopulation` when no depth or structural evidence explains it; a
 high-depth / copy-number signal (a trusted `depth_high`, or the group's own depth ratio ≥ 1.75 with
 high-MAPQ share ≥ 0.75) gives `collapsed_repeat`. `depth_half` and `depth_low` keep their own hints
@@ -169,7 +169,7 @@ About 1 s per bacterial genome (0.36–4.99 s over the 66 raw → polished cases
 Sniffles2. Planted errors: every large event kind × size is recalled at red+orange (100 %), and at
 red for all but the two larger duplications and one collapse; SNPs/INS/DEL at 99–100 % red.
 Raw → polished truth: clear-support events are recalled at red for 94–100 % (57 % on real ONT).
-Most extra calls are yellow. Details and numbers: [qc-validation.md](qc-validation.md).
+Most extra calls are yellow. Details and numbers: [qc-validation.md](../validation/qc-validation.md).
 
 ## Known limitations
 

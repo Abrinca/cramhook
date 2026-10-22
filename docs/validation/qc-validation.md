@@ -4,12 +4,12 @@ How `cramhook qc` is validated, and how far its output can be trusted. `qc` is a
 triage tool: it scans a read-to-assembly alignment and flags suspicious **sites**
 (VCF) and **regions** (BED) as `yellow`, `orange` or `red` (`gray` sits below
 yellow and marks homopolymer indels). It does **not** classify structural
-variants, call genotypes, realign or recalibrate (`docs/plans/Plan-v3.md`). A flag means
+variants, call genotypes, realign or recalibrate (`docs/project/plans/Plan-v3.md`). A flag means
 "the reads disagree with the assembly here"; the tier says how strongly, and
 `FILTER` (`PASS`/`LowCov`) says how much the local depth supports it.
 
-Sources of every number below: `docs/decisions.md` (from "qc split-read junction
-signal" onward), `docs/plans/Plan-v3.md`, and the scratch reports
+Sources of every number below: `docs/project/decisions.md` (from "qc split-read junction
+signal" onward), `docs/project/plans/Plan-v3.md`, and the scratch reports
 `scratch/qc/eval/s33/Report.md` (raw → polished, current baseline tag `s33`),
 `scratch/qc/spike-eval/sp31/Report.md` (planted errors, current baseline tag
 `sp31`), `scratch/qc-gray/Report.md` (gray tier, measured at `s28` vs `s26`),
@@ -189,7 +189,7 @@ output changes moved the false-alarm counts from the earlier `s28` numbers
 without changing recall: `s32` drops a `depth_step` at the origin of a wrapping
 contig (114 calls = 57 peaks removed; FP red/orange/yellow 277/1504/3199 →
 259/1466/3169 over the 66 cases; the origin-drop decision in
-`docs/decisions.md`), and `s33` adds the cross-contig clip links (`clip_to=`/
+`docs/project/decisions.md`), and `s33` adds the cross-contig clip links (`clip_to=`/
 `link=` notes, JSON `xlinks`) with the VCF byte-identical and `.bed`/
 `.findings.bed` identical once those note fields are removed: 56 links in 17
 cases, no tier or `likely` change (the cross-contig clip links decision). The
@@ -306,11 +306,11 @@ insertion *and* a long deletion; `sp31`):
 
 The `likely` hint is looser than before because the linked-findings rule pools a
 small error with the region that links it, and the small error then takes the
-region's hint (`docs/decisions.md`, "linked findings"). Since `sp27`/`s29`, a
+region's hint (`docs/project/decisions.md`, "linked findings"). Since `sp27`/`s29`, a
 finding whose only evidence is a `depth_step` is labelled `depth_change` instead
 of `unclear` (the evidence flag is `depth_step`; `depth_segment` is output only):
 130 findings in `s29` and 33 in `sp27` move, with `.bed`/`.vcf` tiers, recall and
-false alarms unchanged (`docs/decisions.md`, "`likely=depth_change`"). The hint
+false alarms unchanged (`docs/project/decisions.md`, "`likely=depth_change`"). The hint
 table above is unchanged between `sp26` and `sp31`.
 
 **Findings per planted event** (`sp31`): one, except swaps (mean 3.33 findings —
@@ -361,7 +361,7 @@ The three qc-only regions were inspected read by read
   `bridge_break` counted reads that end within 500 bp as not bridging, and
   `depth_low` reacts to the dip, so both turned red although no read contradicts
   the assembly. This is intended: an abrupt coverage change like this is unusual
-  and worth a look (user decision, `docs/decisions.md`).
+  and worth a look (user decision, `docs/project/decisions.md`).
 
 Of the 7 red locations, 4 are supported by Clair3 or Sniffles2 (one of them, the
 FAM20862 SNP at 835,158, lies inside the FAM20862 region), 2 more were judged
@@ -429,7 +429,7 @@ qc's role is to flag, not to genotype.
 ## 7. Review process
 
 Policy: an independent `reviewer` agent checks the diff before commit
-(`scratch/manager/Handoff.md`; `docs/decisions.md`). Bugs found this way, with
+(`scratch/manager/Handoff.md`; `docs/project/decisions.md`). Bugs found this way, with
 the regression tests they led to:
 
 - **`AF > 1` from indel normalisation** (commit `5feb6ff`). Grouping similar
@@ -484,7 +484,7 @@ Newer features carry their own regression tests: `qc_bedgraph_aligned_depth_excl
 - **Origin of circular contigs is not checked.** By decision, the use case runs
   `dnaapler`, which rotates each assembly to start at dnaA; an assembler may get
   the region around the original start wrong, but there is no reason to expect
-  errors at the start of dnaA (`docs/decisions.md`, "qc scope decisions").
+  errors at the start of dnaA (`docs/project/decisions.md`, "qc scope decisions").
   Breaks at the origin of circular contigs are therefore not covered by the
   bridging-read check (and the `bridge_break` signal no longer exists). The
   depth-step signal is different: on a wrapping contig an origin `depth_step` is
@@ -497,7 +497,7 @@ Newer features carry their own regression tests: `qc_bedgraph_aligned_depth_excl
   runs.
 - **Short, partial collapses in raw assemblies only reach orange.** In the raw
   assemblies, collapses are short (0.5–2.5 kb) and partial (~1.5× depth), and
-  their SNP clusters already flag them orange, not red (`docs/decisions.md`,
+  their SNP clusters already flag them orange, not red (`docs/project/decisions.md`,
   "qc depth bands"). This is not about collapses longer than the reads, and the
   planted short collapses are unaffected: they all reached red or orange (§4).
 - **Duplications can stay below red.** The planted 5 kb and 10 kb tandem
@@ -515,7 +515,7 @@ Newer features carry their own regression tests: `qc_bedgraph_aligned_depth_excl
   contig, to keep the origin join out. On circular contigs below 200 kb this blanks a median
   18–20 % of the length, and on raw → polished it suppresses 21 clusters that pass the gate;
   3 of them are not origin-related (e.g. `utg000001c:944–7372`, 796 reads). An origin-only
-  rule plus a read-continuation test was tried and not adopted (`docs/decisions.md`,
+  rule plus a read-continuation test was tried and not adopted (`docs/project/decisions.md`,
   "split_junction near contig ends: origin-only rule tried, not adopted").
 - **Not a variant caller.** `qc` does not classify structural variants, realign
   or recalibrate; `qc_qv` in the JSON is a summary of qc's own calls and is not

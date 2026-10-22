@@ -1,0 +1,15 @@
+{#-
+  Override of Zensical's `partials/logo.html`: renders the light logo (`theme.logo`)
+  and the dark logo (`extra.logo_dark`) as two <img>s; `docs/stylesheets/extra.css`
+  shows one per palette. Used by both the header and the mobile drawer.
+  Two images instead of `content: url()` on one, which Firefox ignores.
+-#}
+{% if config.theme.logo %}
+  <img class="cramhook-logo cramhook-logo--light" src="{{ config.theme.logo | url }}" alt="{{ config.site_name }}" width="448" height="248">
+  {% if config.extra.logo_dark %}
+    <img class="cramhook-logo cramhook-logo--dark" src="{{ config.extra.logo_dark | url }}" alt="" width="448" height="248">
+  {% endif %}
+{% else %}
+  {% set icon = config.theme.icon.logo or "material/library" %}
+  {% include ".icons/" ~ icon ~ ".svg" %}
+{% endif %}
