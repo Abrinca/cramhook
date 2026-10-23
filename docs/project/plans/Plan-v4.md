@@ -46,6 +46,9 @@ because 1.0.2 is not on crates.io yet. When it is published, drop the `[patch]` 
 and use the normal crates.io dependency. This does not block the release (binaries on GitHub
 releases only; crates.io is not a target). rust-htslib is MIT, compatible with GPL-3.0.
 
+**Done 2026-10-23:** 1.0.2 is on crates.io; the `[patch]` is dropped and the crates.io build is
+used. The clones under `ref/` (including `ref/htslib`) are kept as read-only reference material.
+
 ## Public samples
 
 FAM14197, FAM20838, FAM20843, FAM20847, FAM20851, FAM20853, FAM20856, FAM20862, FAM20866, FAM22000,

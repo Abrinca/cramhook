@@ -80,10 +80,15 @@ One entry per non-obvious decision: what, why, alternatives.
   the `@PG` contract forbids `--MD`/`--cs`, so any `MD` is a decode artifact. A record carrying
   any tag outside `NM ms AS nn tp cm s1 s2 de rl SA` (after stripping `MD`) is deferred with
   reason `tags`.
-- **`rust-htslib` 1.0.2 is not on crates.io.** It exists only in `ref/rust-htslib` (same
-  version), so `Cargo.toml` keeps `rust-htslib = "=1.0.2"` and patches `[patch.crates-io]
+- **`rust-htslib` 1.0.2 was not on crates.io at first.** It existed only in `ref/rust-htslib`
+  (same version), so `Cargo.toml` kept `rust-htslib = "=1.0.2"` and patched `[patch.crates-io]
   rust-htslib = { path = "ref/rust-htslib" }`. `ref/` stays untouched. The `libdeflate` feature
-  builds fine; no feature was dropped.
+  builds fine; no feature was dropped. **Resolved 2026-10-23:** 1.0.2 is published on crates.io
+  (`checksum fc6fe95f…`); the `[patch]` was dropped and the lock now points at the registry. The
+  published crate lacks the unreleased post-1.0.2 `Header::to_hashmap -> Result` change that the
+  vendored checkout carried; cramhook does not call `to_hashmap`. The requirement is relaxed to
+  `1.0.2` (caret) so `cargo update` can pick up 1.0.x fixes; `Cargo.lock` still pins 1.0.2.
+  `ref/htslib` (C source) is kept for reference.
 - **`SA` rewrite reproduces minimap2's simplification, not the record CIGAR.** minimap2 writes
   each `SA` entry as `rname,pos1,strand,<clip5>S<M><I|D><clip3>S,mapq,NM;` from the *internal*
   `mm_reg1_t` (`ref/minimap2/format.c`): `l_M = min(query_span, ref_span)`, a single `I` or `D`

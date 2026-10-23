@@ -44,7 +44,8 @@ Cases, provenance and thresholds: [testdata/README.md](https://github.com/Abrinc
 
 ## Source layout
 
-`ref/rust-htslib` holds the pinned rust-htslib 1.0.2 source used via `[patch]`.
+`rust-htslib` is the normal crates.io dependency (`1.0.2`, locked by `Cargo.lock`). `ref/htslib` is a
+read-only clone of the upstream C htslib source, kept for reference only (not used by the build).
 
 | Path | Contents |
 |------|----------|

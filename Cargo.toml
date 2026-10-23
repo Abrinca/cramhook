@@ -10,16 +10,10 @@ clap = { version = "=4.6.7", features = ["derive"] }
 anyhow = "=1.0.104"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
-rust-htslib = { version = "=1.0.2", default-features = false, features = ["bzip2", "lzma", "libdeflate"] }
+rust-htslib = { version = "1.0.2", default-features = false, features = ["bzip2", "lzma", "libdeflate"] }
 # MIT; Rust port of PILER-CR (`qc --crispr` array detection).
 pilercr-rs = "0.2"
 
 # musl's allocator is slow under many threads; only the static musl release build uses mimalloc.
 [target.'cfg(target_env = "musl")'.dependencies]
 mimalloc = { version = "=0.1.52", default-features = false }
-
-# rust-htslib 1.0.2 is not published on crates.io; the pinned source lives in
-# ref/rust-htslib (same version). Patch the dependency to that path so the
-# version requirement above resolves to the reviewed source. ref/ is read-only.
-[patch.crates-io]
-rust-htslib = { path = "ref/rust-htslib" }
