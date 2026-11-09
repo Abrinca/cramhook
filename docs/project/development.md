@@ -1,5 +1,9 @@
 # Development
 
+Build and test inside the pixi environment (`pixi run …`). The environment provides the Rust
+toolchain, the C build dependencies for the bundled htslib, `minimap2` and `samtools`. A plain
+`cargo build` or `cargo run` outside pixi fails because htslib cannot be built.
+
 ```bash
 pixi run cargo build --release
 pixi run cargo test               # unit + integration tests (debug or --release)

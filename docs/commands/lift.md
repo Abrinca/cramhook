@@ -32,8 +32,62 @@ cramhook lift --in old.cram --old-ref old.fa --new-ref new.fa --out new.cram \
 ```
 
 Requirements: Linux, plus `minimap2` and `samtools` on `PATH`. `CRAMHOOK_MINIMAP2` and
-`CRAMHOOK_SAMTOOLS` override only the remap minimap2 and the output sort; the diff and indexing
-still use `PATH`.
+`CRAMHOOK_SAMTOOLS` override the remap minimap2 and the output sort (which also writes the index);
+the minimap2 of the assembly diff and `samtools faidx` (for a missing `.fai`) still come from `PATH`.
+
+## Limitations
+
+**Input**
+
+- The input must be a CRAM made by the exact command shown in the quick start (minimap2 with
+  `lr:hq` or `map-hifi`, `--secondary=no`, `-Y`, then `samtools sort`). Other aligners and other
+  minimap2 options (e.g. `--MD`, `--cs`) are not supported, and the header is checked for this.
+  See [Input contract](#input-contract).
+- Reads must be single-end. Paired-end data is not supported.
+- Secondary alignments are not supported.
+- The input must be coordinate-sorted, include the unmapped reads, and have `@SQ` lines that match
+  `old.fa.fai`; a mismatch is an error.
+- A CRAM that was processed after mapping (e.g. with `samtools view`) violates the contract. By
+  default cramhook then remaps every read, so the result is correct but there is no speedup. With
+  `--strict` it exits with an error instead.
+- A CRAM written by `cramhook lift` can be lifted again, but only if every lift in the chain used
+  the default eligibility options. See [Lifted input (chains)](#lifted-input-chains).
+
+**What is not carried over**
+
+- Reads with tags other than `NM ms AS nn tp cm s1 s2 de rl SA` (plus `XL` on chained input),
+  e.g. `cs` or `MM`, are not translated; they are remapped.
+- `s2` is removed from translated reads, because it describes competing alignments on the old
+  assembly and cannot be recomputed without remapping. `cm`, `s1` and `rl` are copied from the old
+  alignment and can differ slightly from a fresh run.
+- `MD` is not copied; it is recomputed from `new.fa` when the CRAM is decoded.
+- Alignments are never edited: a read is either translated unchanged (only contig, position and
+  strand change) or remapped. There is no patching of CIGARs across edits.
+
+**What is remapped, so the speedup shrinks**
+
+- Split reads, except reads that cross the origin of a circular contig.
+- Reads near any change: reads whose alignment window is not inside one unchanged block, or that
+  overlap sequence the new assembly may map differently (deleted or duplicated sequence, sequence
+  similar to new sequence, new adjacencies).
+- Low-MAPQ reads and reads with a near-equal competing alignment, high divergence, or long soft
+  clips.
+- All reads, if the input CRAM is very small (below `--min-input-mb`).
+
+The full list of rules is in [Eligibility rules](#eligibility-rules). Remapped reads are what
+minimap2 writes for `new.fa`.
+
+**Differences from a full remap**
+
+- On reverse-complemented contigs, a few translated reads differ from a fresh remap, mostly in
+  the CIGAR and `AS`, because minimap2 places equal-scoring indels differently depending on
+  orientation. This was 0–4 reads per real dataset. See [What "equivalent"
+  means](#what-equivalent-means).
+- The cutoff for competing alignments is a heuristic, so a read can rarely keep MAPQ 60 where a
+  fresh remap would give 59.
+- Both are measured, not excluded by design. cramhook checks that the reference bases under every
+  translated read are identical in the old and new assembly, and aborts otherwise. It does not
+  check that the result equals a fresh remap.
 
 ## How it works
 
@@ -60,7 +114,7 @@ flowchart LR
      important case. Example: a new plasmid carries a copy of an IS element that also sits on the
      chromosome. A read on the chromosomal copy is unchanged, but it now has a competing locus, so
      its old MAPQ would be stale. To find such regions, the novel sequence is cut into
-     read-length windows and mapped back to `old.fa`. This uses the read preset and keeps all hits
+     10 kb windows (`--t2-win`, step `--t2-step`, 2 kb) and mapped back to `old.fa`. This uses the read preset and keeps all hits
      (`-N 1000000 -p 0.000001`). The old bases aligned to novel bases are tainted.
    - **T2 junction**: old sequence that resembles the sequence **across a new adjacency** that
      adds no base. A deletion can join a copy that an old contig held fragmented, so the new
@@ -98,7 +152,7 @@ reason in `--stats`.
 | 3b | no near-equal competitor: `s2 < --max-s2-ratio × s1` (0.5) | `competitor` |
 | 4 | divergence `de` ≤ 0.01 (`map-hifi`) / 0.03 (`lr:hq`), or `--max-de` | `de` |
 | 5 | total soft clip ≤ `--max-clip` (200 bp) | `clip` |
-| 6 | only the expected tags `NM ms AS nn tp cm s1 s2 de rl SA` | `tags` |
+| 6 | only the expected tags `NM ms AS nn tp cm s1 s2 de rl SA` (plus `XL` on chained input) | `tags` |
 | 7 | the window (alignment + clips ± `--margin` 500 bp, clipped to the contig) lies inside one identity block and touches no taint; if the unclipped window crosses a contig end, the new assembly must preserve that junction | `no_block`, `junction`, `taint_t1`, `taint_t2`, `taint_junction` |
 | 7b | on `-` blocks: no indel ≥ `--max-minus-indel` (50 bp) | `minus_indel` |
 | 7d | on `-` blocks: the old alignment's z-drop score (minimap2's split test, preset scoring) ≤ `--max-zdrop` (400) | `zdrop` |
@@ -147,10 +201,6 @@ are ignored when comparing supplementaries (minimap2 adds or drops such placemen
 depending on orientation; raw counts are still reported). Separately, rule 3b's 0.5 limit is a
 heuristic: one read in 18 full-size cases kept MAPQ 60 where a fresh run gave 59 (s2/s1 = 0.498).
 
-Clair3 and Sniffles2 calls were identical on lifted vs. fully remapped output for two real cases
-with many `-` block reads. On a synthetic truth set, Clair3 on lifted output kept all 18 oracle
-calls and found one additional true variant.
-
 ## Tags on translated reads
 
 Every output record carries `XL:A:T` (translated: coordinates moved, alignment kept) or `XL:A:R`
@@ -189,9 +239,9 @@ minimap2 -ax $PRESET -t N --secondary=no -Y old.fa reads.fastq.gz \
 - References are plain FASTA (`.fai` created if missing). CRAM I/O always uses the given reference,
   never a network lookup.
 
-**Not supported (v1):** other aligners or minimap2 options (e.g. `--MD`, `--cs`), secondary
-alignments, paired-end reads. A decode-generated `MD` is stripped; reads with other unexpected
-tags (e.g. `cs`, `MM`) are remapped.
+Other aligners or minimap2 options (e.g. `--MD`, `--cs`), secondary alignments and paired-end reads
+are not supported (see [Limitations](#limitations)). A decode-generated `MD` is stripped; reads
+with other unexpected tags (e.g. `cs`, `MM`) are remapped.
 
 ### Lifted input (chains)
 
@@ -252,7 +302,8 @@ cramhook lift --in old.cram --old-ref old.fa --new-ref new.fa --out new.cram \
   (`T1`/`T2`/`T2J`) and novel regions as BED, plus `junctions.bed`, the PAFs and a summary.
 - `cramhook translate …` runs the classification only. It writes the translated BAM, the deferred
   FASTQ/TSV and the stats.
-- `cramhook fish …` extracts the reads that disagree with the assembly (see [fish.md](fish.md)).
+
+`qc` and `fish` are full commands, documented in [qc.md](qc.md) and [fish.md](fish.md).
 
 ## Performance and validation
 
@@ -262,7 +313,7 @@ The full remap writes CRAM at samtools' default compression level. Details are i
 
 | set | build | cases | speedup median (range) |
 |-----|-------|-------|------------------------|
-| use case: ONT cons → polished, polished → rotated/reoriented, polished → PacBio assembly; PacBio cons → finalized (full size) | current | 24 | 4.0× (2.1–6.0×) |
+| use case: ONT cons → polished, polished → rotated/reoriented, polished → PacBio assembly; PacBio cons → finalized (full size) | M7b (later pass speedups not re-measured) | 24 | 4.0× (2.1–6.0×) |
 | ONT, full size (0.7–2.1 Gb reads), raw assembly → polished | M6/M7 | 18 | 2.7× (1.7–5.1×) |
 | PacBio HiFi, consensus → finalized and raw → consensus | M6/M7 | 24 | 4.8× (1.2–6.5×) |
 | ONT, same case types, 0.04–2.1 Gb reads | M5 | 24 | 1.8× (0.5–5.2×) |

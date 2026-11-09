@@ -653,7 +653,7 @@ struct DiffArgs {
     /// Read preset used for the T2 probe.
     #[arg(long)]
     preset: Preset,
-    /// Output prefix; writes `<prefix>.{diff.paf,t2.paf,blocks.bed,taint.bed,novel.bed,summary.json}`.
+    /// Output prefix; writes `<prefix>.{diff.paf,t2.paf,blocks.bed,taint.bed,novel.bed,junctions.bed,summary.json}`.
     #[arg(long)]
     out_prefix: PathBuf,
     /// Threads for minimap2 (default: all available cores).
