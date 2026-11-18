@@ -31,6 +31,7 @@ VCF `POS` is 1-based. One exception: the `sa` column of `P.fish.tsv` copies posi
 | `qc` | `P.haplotypes.tsv` | [TSV](#phaplotypestsv) |
 | `fish` | `P.fastq.gz` | [FASTQ](#pfastqgz) |
 | `fish` | `P.fish.tsv` | [TSV](#pfishtsv) |
+| `fish` | `P.lengths.tsv` | [TSV](#plengthstsv) |
 | `fish` | `P.fish.json` | [JSON](#pfishjson) |
 | `fish` | `P.bait_ref.fa`, `P.bait.cram` (with `--bait`) | [FASTA, CRAM](#pbait_reffa-pbaitcram) |
 
@@ -252,6 +253,23 @@ row each. The `detail` values per reason are listed in [fish.md](../commands/fis
 `arm1` is the arm earlier in the read, `q` coordinates are 0-based half-open in original read
 orientation, and `r` coordinates are 0-based half-open reference coordinates.
 
+### P.lengths.tsv
+
+Read-length histogram across the input alignment, always written (even when no reads are selected).
+Header: `bin_lo`, `reads`, `bp`.
+
+- **Binning:** `bin_lo` is the inclusive lower edge of each bin; a bin ends at the next row's
+  `bin_lo` (exclusive), and the last bin is open-ended. The first bin is `[0, 100)`, followed by
+  log-spaced bins with `bin_lo = round(100 * 10^(k/20))` for `k = 0, 1, 2, ...` (`100`, `112`, `126`,
+  `141`, `158`, ...), stopping after the bin containing the longest read (empty bins in between are
+  written as `0\t0`). If there are no counted reads at all, only the header line is written.
+- **What counts:** every read once — its primary record (flags without `0x100`/`0x800`) or its
+  unmapped record (`0x4`), skipping secondary (`0x100`), supplementary (`0x800`), QC-fail (`0x200`)
+  and duplicate (`0x400`) records. Read length is the record's `SEQ` length (hard clips would add
+  to it, but `fish` rejects hard-clipped records, so they never occur).
+- **Invariant against `P.fish.json` `records`:** `sum(reads) == records.primary + records.unmapped`
+  and `sum(bp) == records.mapped_bp + records.unmapped_bp`.
+
 ### P.fish.json
 
 The selected reads and bp per reason and in total, the input record counts, the categories and
@@ -276,7 +294,7 @@ With `--bait`, the `bait` block holds the bait contigs (`contigs`: `name`, `leng
 `timing_s`, plus `mode` (`any`/`primary`) and `supplementary_only_reads` (the reads selected only
 through a supplementary bait record).
 
-The TSV and the decompressed FASTQ are byte-identical across thread counts (only the JSON's timing
+The TSVs and the decompressed FASTQ are byte-identical across thread counts (only the JSON's timing
 differs).
 
 ### P.bait_ref.fa, P.bait.cram

@@ -292,8 +292,9 @@ fn fish_selects_each_category_and_thread_identity() {
     assert_eq!(j["reads"]["by_reason"]["unmapped"]["reads"], 1, "{j}");
     assert_eq!(j["reads"]["reads"], 71, "{j}");
 
-    // Thread identity: identical TSV + decompressed FASTQ; JSON minus timing.
+    // Thread identity: identical TSV + lengths.tsv + decompressed FASTQ; JSON minus timing.
     assert_eq!(std::fs::read(p1.with_extension("fish.tsv")).unwrap(), std::fs::read(p8.with_extension("fish.tsv")).unwrap());
+    assert_eq!(std::fs::read(p1.with_extension("lengths.tsv")).unwrap(), std::fs::read(p8.with_extension("lengths.tsv")).unwrap());
     assert_eq!(fastq(&p1), fastq(&p8), "FASTQ differs between --threads 1 and 8");
     let strip = |path: &Path| -> serde_json::Value {
         let mut v = json(path);
@@ -1211,6 +1212,10 @@ fn fish_counted_record_exclusions() {
     let prefix = dir.join("out");
     run_fish(&aln, &fa, &prefix, &params(1)).unwrap();
     assert!(tsv(&prefix).is_empty(), "{:?}", tsv(&prefix));
+    assert_eq!(
+        std::fs::read_to_string(prefix.with_extension("lengths.tsv")).unwrap(),
+        "bin_lo\treads\tbp\n"
+    );
     let j = json(&prefix);
     assert_eq!((j["records"]["secondary"].as_u64(), j["records"]["qcfail"].as_u64(), j["records"]["duplicate"].as_u64()), (Some(1), Some(1), Some(1)), "{j}");
     assert!(String::from_utf8(fastq(&prefix)).unwrap().is_empty(), "no reads selected");
@@ -1286,6 +1291,7 @@ fn fish_thread_identity_multichunk() {
 
     // The environment has >= 4 cores in CI? clamp: only compare if threads take.
     assert_eq!(std::fs::read(p1.with_extension("fish.tsv")).unwrap(), std::fs::read(p4.with_extension("fish.tsv")).unwrap(), "TSV differs");
+    assert_eq!(std::fs::read(p1.with_extension("lengths.tsv")).unwrap(), std::fs::read(p4.with_extension("lengths.tsv")).unwrap(), "lengths.tsv differs");
     assert_eq!(fastq(&p1), fastq(&p4), "FASTQ differs across threads");
     let strip = |path: &Path| {
         let mut v = json(path);
@@ -2719,4 +2725,164 @@ fn fish_hairpin_supplementary_pair_and_both_clips_hairpin() {
     assert_eq!(reasons_of(&rows, "hairpin"), vec!["both_hp", "ss_hp"], "{rows:?}");
     // both_hp has ZERO clip rows (both clips on primary and the clips on S1/S2 converted to hairpin).
     assert_eq!(reasons_of(&rows, "clip"), vec!["ss_hp"], "{rows:?}");
+}
+
+#[test]
+fn fish_lengths_histogram_exact_and_invariants() {
+    let chr1 = random_seq(1_000, 901);
+    let chr2 = random_seq(1_000, 902);
+    let contigs = vec![("chr1".to_string(), chr1.clone()), ("chr2".to_string(), chr2.clone())];
+    let recs = vec![
+        // Counted primary records across bins & chunks (none selected by fish!).
+        R {
+            name: "p50".to_string(),
+            tid: 0,
+            pos: 10,
+            cigar: vec![Cigar::Match(50)],
+            seq: chr1[10..60].to_vec(),
+            qual: vec![30u8; 50],
+            flags: 0,
+        },
+        R {
+            name: "p100".to_string(),
+            tid: 0,
+            pos: 250,
+            cigar: vec![Cigar::Match(100)],
+            seq: chr1[250..350].to_vec(),
+            qual: vec![30u8; 100],
+            flags: 0x10,
+        },
+        R {
+            name: "p111".to_string(),
+            tid: 0,
+            pos: 500,
+            cigar: vec![Cigar::Match(111)],
+            seq: chr1[500..611].to_vec(),
+            qual: vec![30u8; 111],
+            flags: 0,
+        },
+        R {
+            name: "p112".to_string(),
+            tid: 1,
+            pos: 50,
+            cigar: vec![Cigar::Match(112)],
+            seq: chr2[50..162].to_vec(),
+            qual: vec![30u8; 112],
+            flags: 0,
+        },
+        R {
+            name: "p158".to_string(),
+            tid: 1,
+            pos: 450,
+            cigar: vec![Cigar::Match(158)],
+            seq: chr2[450..608].to_vec(),
+            qual: vec![30u8; 158],
+            flags: 0,
+        },
+        // Supplementary record on p158: must NOT be counted in lengths.tsv.
+        R {
+            name: "p158".to_string(),
+            tid: 0,
+            pos: 750,
+            cigar: vec![Cigar::SoftClip(10), Cigar::Match(148)],
+            seq: random_seq(158, 903),
+            qual: vec![30u8; 158],
+            flags: 0x800,
+        },
+        // Secondary, QC-fail, duplicate records: must NOT be counted.
+        R {
+            name: "sec_skip".to_string(),
+            tid: 0,
+            pos: 100,
+            cigar: vec![Cigar::Match(300)],
+            seq: chr1[100..400].to_vec(),
+            qual: vec![30u8; 300],
+            flags: 0x100,
+        },
+        R {
+            name: "qf_skip".to_string(),
+            tid: 0,
+            pos: 300,
+            cigar: vec![Cigar::Match(400)],
+            seq: chr1[300..700].to_vec(),
+            qual: vec![30u8; 400],
+            flags: 0x200,
+        },
+        R {
+            name: "dup_skip".to_string(),
+            tid: 1,
+            pos: 200,
+            cigar: vec![Cigar::Match(500)],
+            seq: chr2[200..700].to_vec(),
+            qual: vec![30u8; 500],
+            flags: 0x400,
+        },
+        // Placed unmapped (80 bp) and unplaced unmapped (158 bp): counted once each.
+        R {
+            name: "un_placed".to_string(),
+            tid: 0,
+            pos: 600,
+            cigar: Vec::new(),
+            seq: random_seq(80, 904),
+            qual: vec![30u8; 80],
+            flags: 0x4,
+        },
+        R {
+            name: "un_unplaced".to_string(),
+            tid: -1,
+            pos: -1,
+            cigar: Vec::new(),
+            seq: random_seq(158, 905),
+            qual: vec![30u8; 158],
+            flags: 0x4,
+        },
+    ];
+
+    let dir = workdir("lengths_hist");
+    let (fa, aln) = write_aln(&dir, &contigs, &recs, false);
+    let p1 = dir.join("t1");
+    let p4 = dir.join("t4");
+    // Disable unmapped selection so nothing is selected at all: lengths.tsv is still written.
+    let mk_p = |threads: usize| FishParams {
+        threads,
+        chunk_size: Some(200),
+        no_unmapped: true,
+        ..Default::default()
+    };
+    run_fish(&aln, &fa, &p1, &mk_p(1)).unwrap();
+    run_fish(&aln, &fa, &p4, &mk_p(4)).unwrap();
+
+    assert!(tsv(&p1).is_empty(), "expected no selected reads");
+    let raw1 = std::fs::read_to_string(p1.with_extension("lengths.tsv")).unwrap();
+    let raw4 = std::fs::read_to_string(p4.with_extension("lengths.tsv")).unwrap();
+    assert_eq!(raw1, raw4, "lengths.tsv differs across thread counts");
+
+    let expected = "\
+bin_lo\treads\tbp
+0\t2\t130
+100\t2\t211
+112\t1\t112
+126\t0\t0
+141\t0\t0
+158\t2\t316
+";
+    assert_eq!(raw1, expected, "unexpected lengths.tsv:\n{raw1}");
+
+    // Check Σ invariant against fish.json `records`.
+    let mut sum_reads = 0u64;
+    let mut sum_bp = 0u64;
+    for line in raw1.lines().skip(1) {
+        let mut f = line.split('\t');
+        let _lo: u64 = f.next().unwrap().parse().unwrap();
+        let r: u64 = f.next().unwrap().parse().unwrap();
+        let b: u64 = f.next().unwrap().parse().unwrap();
+        assert!(f.next().is_none());
+        sum_reads += r;
+        sum_bp += b;
+    }
+    let j = json(&p1);
+    let rec_reads = j["records"]["primary"].as_u64().unwrap() + j["records"]["unmapped"].as_u64().unwrap();
+    let rec_bp = j["records"]["mapped_bp"].as_u64().unwrap() + j["records"]["unmapped_bp"].as_u64().unwrap();
+    assert_eq!(sum_reads, rec_reads, "{j}");
+    assert_eq!(sum_bp, rec_bp, "{j}");
 }

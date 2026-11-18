@@ -129,11 +129,12 @@ always records `mode` and the number of supplementary-only reads; an absent flag
 |---|---|
 | `P.fastq.gz` | the selected reads (BGZF), each once, in original orientation, sorted by read name |
 | `P.fish.tsv` | one row per (read, reason, finding) |
+| `P.lengths.tsv` | log-spaced read-length histogram (`bin_lo`, `reads`, `bp`) across every counted read (primary + unmapped); always written (header only when empty) |
 | `P.fish.json` | selected reads and bp per reason and in total, reads dropped by `--clip-cap`, `hairpin_detected` counts, `origin_crossing_skipped` counts, input record counts, categories and thresholds, timing; a `bait` block with `--bait` |
 | `P.bait_ref.fa` (with `--bait`) | assembly + bait contigs, indexed |
 | `P.bait.cram` (with `--bait`) | the bait lift, with index |
 
-The TSV and the decompressed FASTQ are byte-identical across thread counts (only the JSON's timing
+The TSVs and the decompressed FASTQ are byte-identical across thread counts (only the JSON's timing
 differs). Columns and keys: [output-format.md](../reference/output-formats.md#fish).
 
 ## Demo: recovering a phage missing from an assembly

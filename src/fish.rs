@@ -1,9 +1,12 @@
 //! `fish`: extract the reads that disagree with the assembly.
 //!
 //! Two passes over the alignment, fish's own per-read checks and thresholds, one
-//! FASTQ plus a reasons table. The first pass selects reads and builds the
-//! reasons table; the second decodes the FASTQ payload of the selected reads
-//! only. The optional `--bait` category adds a `lift` session on assembly + bait.
+//! FASTQ, a reasons table (`P.fish.tsv`), and a read-length histogram
+//! (`P.lengths.tsv`, always written; header only when there are no counted reads).
+//! The first pass selects reads, builds the reasons table, and accumulates the
+//! read-length histogram across every counted read (primary + unmapped); the
+//! second decodes the FASTQ payload of the selected reads only. The optional
+//! `--bait` category adds a `lift` session on assembly + bait.
 //!
 //! Counted records skip secondary (0x100), duplicate (0x400) and QC-fail
 //! (0x200); primary and supplementary are both checked. Every counted record
@@ -1147,9 +1150,68 @@ fn sa_string(rec: &bam::Record) -> String {
     }
 }
 
+/// Lower edge (`bin_lo`) for log-spaced bin `k` (`k = 0, 1, 2, ...`):
+/// `round(100 * 10^(k/20))`. Returns `None` if it exceeds `u64::MAX`.
+fn length_bin_k_edge(k: usize) -> Option<u64> {
+    let v = (100.0_f64 * 10.0_f64.powf((k as f64) / 20.0)).round();
+    if !v.is_finite() || v >= (u64::MAX as f64) {
+        None
+    } else {
+        Some(v as u64)
+    }
+}
+
+/// Generate strictly increasing bin lower edges (`[0, 100, 112, ...]`) up to
+/// and including the bin containing `max_len` (when `Some(max_len)`), or all
+/// representable `u64` edges (when `None`).
+fn length_bin_edges(max_len: Option<u64>) -> Vec<u64> {
+    let mut edges = vec![0u64];
+    let mut prev = 0u64;
+    for k in 0usize.. {
+        let Some(edge) = length_bin_k_edge(k) else { break };
+        if max_len.is_some_and(|m| edge > m) {
+            break;
+        }
+        assert!(edge > prev, "length bin edges must be strictly increasing (k={k}: {edge} <= {prev})");
+        edges.push(edge);
+        prev = edge;
+    }
+    edges
+}
+
+/// Cached full table of representable `u64` bin lower edges `[0, 100, 112, ...]`.
+fn all_length_bin_edges() -> &'static [u64] {
+    static EDGES: std::sync::OnceLock<Vec<u64>> = std::sync::OnceLock::new();
+    EDGES.get_or_init(|| length_bin_edges(None))
+}
+
+/// Bin index for read length `len` against `edges` (`edges[0] == 0`, strictly
+/// increasing). Returns the largest `i` such that `edges[i] <= len`.
+fn length_bin_for(edges: &[u64], len: u64) -> usize {
+    debug_assert!(!edges.is_empty() && edges[0] == 0);
+    edges.partition_point(|&e| e <= len) - 1
+}
+
+/// Reference span (`M/D/N/=/X`) and query length (`M/I/S/H/=/X`) of a CIGAR slice.
+fn cigar_ref_and_query_len(cig: &[u32]) -> (usize, u64) {
+    let mut span = 0usize;
+    let mut qlen = 0u64;
+    for &c in cig {
+        let (op, l) = op_parts(c);
+        if matches!(op, OP_M | OP_D | OP_N | OP_EQ | OP_X) {
+            span += l;
+        }
+        if matches!(op, OP_M | OP_I | OP_S | OP_H | OP_EQ | OP_X) {
+            qlen += l as u64;
+        }
+    }
+    (span, qlen)
+}
+
 #[derive(Default)]
 struct WorkerStats {
     counts: InputCounts,
+    length_hist: Vec<(u64, u64)>,
     hairpin_records: u64,
     hairpin_reads: HashSet<String>,
     origin_skipped_records: u64,
@@ -1159,8 +1221,24 @@ struct WorkerStats {
 }
 
 impl WorkerStats {
+    fn record_length(&mut self, len: u64) {
+        let idx = length_bin_for(all_length_bin_edges(), len);
+        if idx >= self.length_hist.len() {
+            self.length_hist.resize(idx + 1, (0, 0));
+        }
+        self.length_hist[idx].0 += 1;
+        self.length_hist[idx].1 += len;
+    }
+
     fn merge(&mut self, other: WorkerStats) {
         self.counts.add(&other.counts);
+        if other.length_hist.len() > self.length_hist.len() {
+            self.length_hist.resize(other.length_hist.len(), (0, 0));
+        }
+        for (dst, &(r, b)) in self.length_hist.iter_mut().zip(other.length_hist.iter()) {
+            dst.0 += r;
+            dst.1 += b;
+        }
         self.hairpin_records += other.hairpin_records;
         self.hairpin_reads.extend(other.hairpin_reads);
         self.origin_skipped_records += other.origin_skipped_records;
@@ -1217,8 +1295,10 @@ fn process_record(
     let name = String::from_utf8_lossy(rec.qname()).into_owned();
 
     if flags & 0x4 != 0 {
+        let unmapped_len = rec.seq_len() as u64;
         stats.counts.unmapped += 1;
-        stats.counts.unmapped_bp += rec.seq_len() as u64;
+        stats.counts.unmapped_bp += unmapped_len;
+        stats.record_length(unmapped_len);
         if !ctx.params.no_unmapped {
             let a = agg_of(aggs, &name, rec);
             let len = a.read_len;
@@ -1239,9 +1319,14 @@ fn process_record(
         return Ok(());
     }
 
+    let cig = rec.raw_cigar();
+    let (span, cigar_qlen) = cigar_ref_and_query_len(cig);
     if primary {
         stats.counts.primary += 1;
         stats.counts.mapped_bp += rec.seq_len() as u64;
+        // Read length = SEQ length + hard clips; hard clips bail above, so it is
+        // `seq_len`, the same value `mapped_bp` adds (keeps the invariant exact).
+        stats.record_length(rec.seq_len() as u64);
     } else {
         stats.counts.supplementary += 1;
     }
@@ -1251,18 +1336,6 @@ fn process_record(
         return Ok(());
     }
     let pos = rpos as usize;
-    let cig = rec.raw_cigar();
-    let mut span = 0usize;
-    let mut cigar_qlen = 0u64;
-    for &c in cig {
-        let (op, l) = op_parts(c);
-        if matches!(op, OP_M | OP_D | OP_N | OP_EQ | OP_X) {
-            span += l;
-        }
-        if matches!(op, OP_M | OP_I | OP_S | OP_H | OP_EQ | OP_X) {
-            cigar_qlen += l as u64;
-        }
-    }
     if span == 0 {
         return Ok(());
     }
@@ -2183,6 +2256,7 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
         }
     }
     let counts = stats.counts;
+    let length_hist = stats.length_hist;
     let hairpin_detected = HairpinDetected {
         reads: stats.hairpin_reads.len() as u64,
         records: stats.hairpin_records,
@@ -2377,6 +2451,20 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
                     r.sa
                 )?;
             }
+        }
+        w.flush()?;
+    }
+
+    // Write the read-length histogram (always written; header only when empty).
+    let lengths_path = out_path(out_prefix, ".lengths.tsv");
+    {
+        let f = std::fs::File::create(&lengths_path)
+            .with_context(|| format!("creating {}", lengths_path.display()))?;
+        let mut w = std::io::BufWriter::new(f);
+        writeln!(w, "bin_lo\treads\tbp")?;
+        let edges = all_length_bin_edges();
+        for (idx, &(n_reads, bp)) in length_hist.iter().enumerate() {
+            writeln!(w, "{}\t{}\t{}", edges[idx], n_reads, bp)?;
         }
         w.flush()?;
     }
@@ -3165,5 +3253,80 @@ mod hairpin_unit {
             check("chr", 1000, 3000, '+', 2000, 2000, l, false, &p, Some(sa)).as_deref(),
             Some("arm1=q2000-4000,r1000-3000,+;arm2=q4000-6000,r1000-3000,-")
         );
+    }
+}
+
+#[cfg(test)]
+mod length_hist_unit {
+    use super::*;
+
+    #[test]
+    fn edges_k0_to_20_and_k40() {
+        let want_k0_20: Vec<u64> = vec![
+            100, 112, 126, 141, 158, 178, 200, 224, 251, 282, 316, 355, 398, 447, 501, 562, 631,
+            708, 794, 891, 1000,
+        ];
+        let got_k0_20: Vec<u64> = (0..=20).map(|k| length_bin_k_edge(k).unwrap()).collect();
+        assert_eq!(got_k0_20, want_k0_20);
+        assert_eq!(length_bin_k_edge(20), Some(1000));
+        assert_eq!(length_bin_k_edge(40), Some(10000));
+
+        let all = all_length_bin_edges();
+        assert_eq!(all[0], 0);
+        assert_eq!(&all[1..=21], want_k0_20.as_slice());
+        assert_eq!(all[41], 10000);
+        assert!(all.windows(2).all(|w| w[0] < w[1]), "edges must be strictly increasing");
+    }
+
+    #[test]
+    fn bin_lookup_boundaries() {
+        let edges = all_length_bin_edges();
+        assert_eq!(length_bin_for(edges, 0), 0);
+        assert_eq!(length_bin_for(edges, 99), 0);
+        assert_eq!(edges[length_bin_for(edges, 99)], 0);
+
+        assert_eq!(length_bin_for(edges, 100), 1);
+        assert_eq!(edges[length_bin_for(edges, 100)], 100);
+        assert_eq!(length_bin_for(edges, 111), 1);
+        assert_eq!(edges[length_bin_for(edges, 111)], 100);
+
+        assert_eq!(length_bin_for(edges, 112), 2);
+        assert_eq!(edges[length_bin_for(edges, 112)], 112);
+
+        assert_eq!(length_bin_for(edges, 999), 20);
+        assert_eq!(edges[length_bin_for(edges, 999)], 891);
+        assert_eq!(length_bin_for(edges, 1000), 21);
+        assert_eq!(edges[length_bin_for(edges, 1000)], 1000);
+        assert_eq!(length_bin_for(edges, 10000), 41);
+        assert_eq!(edges[length_bin_for(edges, 10000)], 10000);
+    }
+
+    #[test]
+    fn longest_read_on_edge_creates_that_bin_as_last() {
+        assert_eq!(length_bin_edges(Some(0)), vec![0]);
+        assert_eq!(length_bin_edges(Some(99)), vec![0]);
+        assert_eq!(length_bin_edges(Some(100)), vec![0, 100]);
+        assert_eq!(length_bin_edges(Some(111)), vec![0, 100]);
+        assert_eq!(length_bin_edges(Some(112)), vec![0, 100, 112]);
+        let e1000 = length_bin_edges(Some(1000));
+        assert_eq!(e1000.last().copied(), Some(1000));
+        assert_eq!(e1000.len(), 22);
+    }
+
+    #[test]
+    fn cigar_query_len_includes_hard_clips() {
+        let cig = vec![
+            (10 << 4) | OP_H,
+            (20 << 4) | OP_S,
+            (50 << 4) | OP_M,
+            (5 << 4) | OP_I,
+            (8 << 4) | OP_D,
+            (3 << 4) | OP_N,
+            (12 << 4) | OP_EQ,
+            (4 << 4) | OP_X,
+        ];
+        // span: M(50) + D(8) + N(3) + =(12) + X(4) = 77
+        // qlen: H(10) + S(20) + M(50) + I(5) + =(12) + X(4) = 101
+        assert_eq!(cigar_ref_and_query_len(&cig), (77, 101));
     }
 }
