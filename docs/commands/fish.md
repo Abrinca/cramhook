@@ -135,7 +135,9 @@ always records `mode` and the number of supplementary-only reads; an absent flag
 | `P.bait.cram` (with `--bait`) | the bait lift, with index |
 
 The TSVs and the decompressed FASTQ are byte-identical across thread counts (only the JSON's timing
-differs). Columns and keys: [output-format.md](../reference/output-formats.md#fish).
+differs). Columns and keys: [output-format.md](../reference/output-formats.md#fish). An empty input
+(0 records) emits `warning: <in>: input has no records` to stderr and writes empty `P.fastq.gz`,
+header-only `P.fish.tsv` and `P.lengths.tsv`, and zero counts in `P.fish.json`.
 
 ## Demo: recovering a phage missing from an assembly
 

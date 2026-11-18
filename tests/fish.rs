@@ -2886,3 +2886,100 @@ bin_lo\treads\tbp
     assert_eq!(sum_reads, rec_reads, "{j}");
     assert_eq!(sum_bp, rec_bp, "{j}");
 }
+
+#[test]
+fn fish_empty_bam() {
+    let dir = workdir("empty_bam");
+    let refseq = random_seq(1_000, 911);
+    let fa = dir.join("ref.fa");
+    std::fs::write(&fa, format!(">chr\n{}\n", std::str::from_utf8(&refseq).unwrap())).unwrap();
+    std::fs::write(
+        dir.join("ref.fa.fai"),
+        format!("chr\t{}\t5\t{}\t{}\n", refseq.len(), refseq.len(), refseq.len() + 1),
+    )
+    .unwrap();
+
+    let mut header = Header::new();
+    header.push_record(HeaderRecord::new(b"HD").push_tag(b"VN", "1.6").push_tag(b"SO", "coordinate"));
+    header.push_record(HeaderRecord::new(b"SQ").push_tag(b"SN", "chr").push_tag(b"LN", refseq.len()));
+
+    // 0-record indexed BAM.
+    let empty_bam = dir.join("empty.bam");
+    {
+        let _w = Writer::from_path(&empty_bam, &header, Format::Bam).unwrap();
+    }
+    bam::index::build(&empty_bam, None, bam::index::Type::Bai, 1).unwrap();
+
+    // Library call succeeds across threads and writes expected empty outputs.
+    for t in [1, 4] {
+        let prefix = dir.join(format!("lib_t{t}"));
+        run_fish(&empty_bam, &fa, &prefix, &params(t)).unwrap();
+        assert!(prefix.with_extension("fastq.gz").exists());
+        assert!(fastq(&prefix).is_empty());
+        assert_eq!(
+            std::fs::read_to_string(prefix.with_extension("fish.tsv")).unwrap(),
+            "read\tlength\treason\tfinding\tcontig\tpos\tstrand\trecord\tdetail\tsa\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(prefix.with_extension("lengths.tsv")).unwrap(),
+            "bin_lo\treads\tbp\n"
+        );
+        let j = json(&prefix);
+        assert_eq!(j["reads"]["reads"], 0, "{j}");
+        assert_eq!(j["reads"]["bp"], 0, "{j}");
+        assert_eq!(j["records"]["total"], 0, "{j}");
+        assert_eq!(j["records"]["primary"], 0, "{j}");
+        assert_eq!(j["records"]["unmapped"], 0, "{j}");
+    }
+
+    // CLI emits the empty-input warning once on stderr and exits 0.
+    let cli_prefix = dir.join("cli_empty");
+    let out = Command::new(env!("CARGO_BIN_EXE_cramhook"))
+        .args(["fish", "--in"])
+        .arg(&empty_bam)
+        .arg("--ref")
+        .arg(&fa)
+        .arg("--out-prefix")
+        .arg(&cli_prefix)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "fish failed on empty BAM: {stderr}");
+    let want_warn = format!("warning: {}: input has no records", empty_bam.display());
+    assert_eq!(
+        stderr.lines().filter(|&l| l == want_warn).count(),
+        1,
+        "expected exactly one warning {want_warn:?} in stderr:\n{stderr}"
+    );
+
+    // A BAM with a mapped record (and zero unmapped reads) must NOT warn.
+    let mapped_bam = dir.join("mapped.bam");
+    {
+        let mut w = Writer::from_path(&mapped_bam, &header, Format::Bam).unwrap();
+        let mut rec = Record::new();
+        rec.set(b"r1", Some(&CigarString(vec![Cigar::Match(100)])), &refseq[..100], &[30u8; 100]);
+        rec.set_tid(0);
+        rec.set_pos(0);
+        rec.set_mapq(60);
+        rec.set_flags(0);
+        rec.set_mtid(-1);
+        rec.set_mpos(-1);
+        w.write(&rec).unwrap();
+    }
+    bam::index::build(&mapped_bam, None, bam::index::Type::Bai, 1).unwrap();
+    let mapped_out = Command::new(env!("CARGO_BIN_EXE_cramhook"))
+        .args(["fish", "--in"])
+        .arg(&mapped_bam)
+        .arg("--ref")
+        .arg(&fa)
+        .arg("--out-prefix")
+        .arg(dir.join("cli_mapped"))
+        .output()
+        .unwrap();
+    let mapped_stderr = String::from_utf8_lossy(&mapped_out.stderr);
+    assert!(mapped_out.status.success(), "fish failed on mapped BAM: {mapped_stderr}");
+    assert!(
+        !mapped_stderr.contains("input has no records"),
+        "unexpected warning on mapped BAM:\n{mapped_stderr}"
+    );
+}

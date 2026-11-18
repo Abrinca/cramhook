@@ -8,8 +8,7 @@ use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
-use rust_htslib::bam::{self, Read as _};
-use rust_htslib::htslib;
+use rust_htslib::bam;
 
 /// Every record in the file (primary, supplementary, secondary, unmapped;
 /// `samtools view -c`): from the container headers of a CRAM 3.x, or the index
@@ -40,38 +39,7 @@ pub fn record_count(path: &Path) -> Option<u64> {
 /// read than counted.
 fn bam_record_count(path: &Path) -> Option<u64> {
     let r = bam::IndexedReader::from_path(path).ok()?;
-    let idx = r.index().inner_ptr();
-    let mut total = 0u64;
-    for tid in 0..r.header().target_count() {
-        let tid = i32::try_from(tid).ok()?;
-        let (mut mapped, mut unmapped) = (0u64, 0u64);
-        // SAFETY: `idx` is the reader's live index; the out-pointers are valid.
-        let rc = unsafe { htslib::hts_idx_get_stat(idx, tid, &mut mapped, &mut unmapped) };
-        if rc < 0 {
-            if reference_has_data(idx, tid)? {
-                return None; // statistics absent
-            }
-            continue;
-        }
-        total += mapped + unmapped;
-    }
-    // SAFETY: as above.
-    Some(total + unsafe { htslib::hts_idx_get_n_no_coor(idx) })
-}
-
-/// Whether the index holds any chunk for reference `tid` (`None`: unknown).
-fn reference_has_data(idx: *const htslib::hts_idx_t, tid: i32) -> Option<bool> {
-    const HTS_POS_MAX: i64 = ((i32::MAX as i64) << 32) | i32::MAX as i64;
-    // SAFETY: `idx` is a live index; the iterator is destroyed before return.
-    unsafe {
-        let it = htslib::sam_itr_queryi(idx, tid, 0, HTS_POS_MAX);
-        if it.is_null() {
-            return None;
-        }
-        let has = (*it).n_off > 0;
-        htslib::hts_itr_destroy(it);
-        Some(has)
-    }
+    crate::bamio::bam_index_record_count(&r)
 }
 
 /// Start position of the CRAM EOF container (`"EOF"` as itf8).

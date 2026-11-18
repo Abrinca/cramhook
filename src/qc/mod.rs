@@ -100,6 +100,9 @@ fn run_qc_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &QcPar
     progress.start_records("scan", progress.record_total(input));
     let scan = scan::scan(input, ref_path, &fasta, &sp)?;
     progress.end();
+    if scan.records.total == 0 {
+        crate::note!("warning: {}: input has no records", input.display());
+    }
     let scan_s = t0.elapsed().as_secs_f64();
     let t1 = Instant::now();
 

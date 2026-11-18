@@ -2015,3 +2015,95 @@ fn qc_gray_not_absorbed_by_finding() {
     assert!(s_off <= GRAY as u64 && (GRAY as u64) < e_off, "gray site not inside the finding span {s_off} {e_off}");
     assert_eq!(s_on, s_off, "finding start moved: {s_on} vs {s_off}");
 }
+
+#[test]
+fn qc_empty_bam() {
+    let dir = workdir("empty_bam");
+    let refseq = random_ref(1_000, 921);
+    let fa = dir.join("ref.fa");
+    let mut text = String::from(">chr\n");
+    for c in refseq.chunks(60) {
+        text.push_str(std::str::from_utf8(c).unwrap());
+        text.push('\n');
+    }
+    std::fs::write(&fa, text).unwrap();
+    std::fs::write(dir.join("ref.fa.fai"), "chr\t1000\t5\t60\t61\n").unwrap();
+
+    let mut header = Header::new();
+    header.push_record(HeaderRecord::new(b"HD").push_tag(b"VN", "1.6").push_tag(b"SO", "coordinate"));
+    header.push_record(HeaderRecord::new(b"SQ").push_tag(b"SN", "chr").push_tag(b"LN", refseq.len()));
+
+    let empty_bam = dir.join("empty.bam");
+    {
+        let _w = Writer::from_path(&empty_bam, &header, Format::Bam).unwrap();
+    }
+    bam::index::build(&empty_bam, None, bam::index::Type::Bai, 1).unwrap();
+
+    let p = dir.join("lib_out");
+    let qp = QcParams { preset: Some(Preset::MapHifi), threads: 4, ..Default::default() };
+    run_qc(&empty_bam, &fa, &p, &qp).unwrap();
+
+    for suf in ["vcf", "bed", "findings.bed", "json", "depth.bedgraph", "gc.bedgraph", "haplotypes.tsv"] {
+        assert!(p.with_extension(suf).exists(), "missing output .{suf}");
+    }
+    let j: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(p.with_extension("json")).unwrap()).unwrap();
+    assert_eq!(j["reads"]["total"], 0, "{j}");
+    assert_eq!(j["assembly"]["assessable_bp"], 0, "{j}");
+    assert_eq!(j["alerts"]["red"], 0, "{j}");
+    assert_eq!(j["alerts"]["orange"], 0, "{j}");
+    assert_eq!(j["alerts"]["yellow"], 0, "{j}");
+    assert_eq!(j["alerts"]["gray"], 0, "{j}");
+    assert_eq!(j["qc_qv"], 0.0, "{j}");
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_cramhook"))
+        .args(["qc", "--in"])
+        .arg(&empty_bam)
+        .arg("--ref")
+        .arg(&fa)
+        .arg("--out-prefix")
+        .arg(dir.join("cli_empty"))
+        .args(["--preset", "map-hifi"])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "qc failed on empty BAM: {stderr}");
+    let want_warn = format!("warning: {}: input has no records", empty_bam.display());
+    assert_eq!(
+        stderr.lines().filter(|&l| l == want_warn).count(),
+        1,
+        "expected exactly one warning {want_warn:?} in stderr:\n{stderr}"
+    );
+
+    // Mapped-only BAM (0 unmapped reads) must NOT emit the empty-input warning.
+    let mapped_bam = dir.join("mapped.bam");
+    {
+        let mut w = Writer::from_path(&mapped_bam, &header, Format::Bam).unwrap();
+        let mut rec = Record::new();
+        rec.set(b"r1", Some(&CigarString(vec![Cigar::Match(100)])), &refseq[..100], &[30u8; 100]);
+        rec.set_tid(0);
+        rec.set_pos(0);
+        rec.set_mapq(60);
+        rec.set_flags(0);
+        rec.set_mtid(-1);
+        rec.set_mpos(-1);
+        w.write(&rec).unwrap();
+    }
+    bam::index::build(&mapped_bam, None, bam::index::Type::Bai, 1).unwrap();
+    let mapped_out = std::process::Command::new(env!("CARGO_BIN_EXE_cramhook"))
+        .args(["qc", "--in"])
+        .arg(&mapped_bam)
+        .arg("--ref")
+        .arg(&fa)
+        .arg("--out-prefix")
+        .arg(dir.join("cli_mapped"))
+        .args(["--preset", "map-hifi"])
+        .output()
+        .unwrap();
+    let mapped_stderr = String::from_utf8_lossy(&mapped_out.stderr);
+    assert!(mapped_out.status.success(), "qc failed on mapped BAM: {mapped_stderr}");
+    assert!(
+        !mapped_stderr.contains("input has no records"),
+        "unexpected warning on mapped BAM:\n{mapped_stderr}"
+    );
+}

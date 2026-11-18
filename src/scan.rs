@@ -923,17 +923,18 @@ pub fn scan(input: &Path, ref_path: &Path, fasta: &Fasta, p: &ScanParams) -> Res
                                 done_bp.add((end - start) as u64, n);
                             }
                             Task::Unplaced => {
-                                reader
-                                    .fetch(bam::FetchDefinition::Unmapped)
-                                    .context("fetching unplaced unmapped reads")?;
                                 let mut n = 0u64;
-                                while let Some(res) = reader.read(&mut rec) {
-                                    res.with_context(|| format!("reading {}", input.display()))?;
-                                    if rec.tid() >= 0 {
-                                        continue;
+                                if crate::bamio::fetch_unplaced(&mut reader)
+                                    .context("fetching unplaced unmapped reads")?
+                                {
+                                    while let Some(res) = reader.read(&mut rec) {
+                                        res.with_context(|| format!("reading {}", input.display()))?;
+                                        if rec.tid() >= 0 {
+                                            continue;
+                                        }
+                                        n += 1;
+                                        classify(&rec, &mut w.counts);
                                     }
-                                    n += 1;
-                                    classify(&rec, &mut w.counts);
                                 }
                                 done_bp.add(0, n);
                             }

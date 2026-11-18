@@ -10,7 +10,9 @@ classify structural variants beyond the `likely=` hint (a label that never chang
 A coordinate-sorted, indexed BAM or CRAM mapped to the assembly with `minimap2 -ax lr:hq`
 (accurate ONT) or `minimap2 -ax map-hifi` (PacBio HiFi). `qc` detects the preset from the minimap2
 `@PG` line; cramhook's own `--preset lr:hq|map-hifi` overrides that detection. Supplementary alignments count toward depth, base counts
-and clips; secondary, duplicate and QC-fail records are skipped. Hard clips are accepted.
+and clips; secondary, duplicate and QC-fail records are skipped. Hard clips are accepted. An empty
+input (0 records) emits `warning: <in>: input has no records` to stderr and writes zero-depth
+outputs.
 
 ## Quick start
 

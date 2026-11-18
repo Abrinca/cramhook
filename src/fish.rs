@@ -1993,14 +1993,15 @@ fn run_payload_pass(
                                 done_bp.add((end - start) as u64, n);
                             }
                             Task::Unplaced => {
-                                reader
-                                    .fetch(bam::FetchDefinition::Unmapped)
-                                    .context("fetching coordinate-less records")?;
                                 let mut n = 0u64;
-                                while let Some(res) = reader.read(&mut rec) {
-                                    res.with_context(|| format!("reading {}", input.display()))?;
-                                    n += 1;
-                                    note_payload(&mut out, selected, &rec);
+                                if crate::bamio::fetch_unplaced(&mut reader)
+                                    .context("fetching coordinate-less records")?
+                                {
+                                    while let Some(res) = reader.read(&mut rec) {
+                                        res.with_context(|| format!("reading {}", input.display()))?;
+                                        n += 1;
+                                        note_payload(&mut out, selected, &rec);
+                                    }
                                 }
                                 done_bp.add(0, n);
                             }
@@ -2210,21 +2211,22 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
                                     // including tid >= 0 ones; placed-unmapped records
                                     // (pos >= 0) only come from the region tasks. So
                                     // process every record here and do not skip tid >= 0.
-                                    reader
-                                        .fetch(bam::FetchDefinition::Unmapped)
-                                        .context("fetching coordinate-less records")?;
                                     let mut n = 0u64;
-                                    while let Some(res) = reader.read(&mut rec) {
-                                        res.with_context(|| format!("reading {}", input.display()))?;
-                                        n += 1;
-                                        process_record(
-                                            &rec,
-                                            usize::MAX,
-                                            ctx,
-                                            &mut aggs,
-                                            &mut stats,
-                                            &mut uncounted,
-                                        )?;
+                                    if crate::bamio::fetch_unplaced(&mut reader)
+                                        .context("fetching coordinate-less records")?
+                                    {
+                                        while let Some(res) = reader.read(&mut rec) {
+                                            res.with_context(|| format!("reading {}", input.display()))?;
+                                            n += 1;
+                                            process_record(
+                                                &rec,
+                                                usize::MAX,
+                                                ctx,
+                                                &mut aggs,
+                                                &mut stats,
+                                                &mut uncounted,
+                                            )?;
+                                        }
                                     }
                                     done_bp.add(0, n);
                                 }
@@ -2273,6 +2275,9 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
     // that lands on a bait contig. Independent of the categories above, which
     // were all evaluated on the original `--in` alignment.
     progress.end();
+    if counts.total == 0 {
+        crate::note!("warning: {}: input has no records", input.display());
+    }
     let mut bait_summary = None;
     if !params.bait.is_empty() {
         progress.start("bait_lift");
