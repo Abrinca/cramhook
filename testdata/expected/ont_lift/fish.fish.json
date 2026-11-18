@@ -18,6 +18,17 @@
     "reads": 0,
     "bp": 0
   },
+  "hairpin_detected": {
+    "reads": 0,
+    "records": 0
+  },
+  "origin_crossing_skipped": {
+    "reads": 839,
+    "records": 1685,
+    "clips": 1694,
+    "clips_exact": 1628,
+    "clips_near_end": 66
+  },
   "records": {
     "total": 6977,
     "primary": 6086,
@@ -35,12 +46,18 @@
     "finding_pad": 1000,
     "unmapped": true,
     "clips": true,
+    "hairpins": true,
     "indels": true,
     "linked": true,
     "bait": false,
     "locus": false,
     "locus_flank": 5000,
     "clip_min_len": 50,
+    "circ_end_tol": 100,
+    "hairpin_min_overlap": 0.5,
+    "hairpin_max_gap": 200,
+    "hairpin_max_gap_frac": 0.02,
+    "hairpin_min_arm_frac": 0.2,
     "indel_min_len": 50,
     "indel_merge_gap": 50,
     "indel_piece_min": 10,

@@ -12,8 +12,10 @@ All outputs share one format version number, currently **1**:
 - BED, bedGraph and TSV files share the same version number but carry no version line of their own
   (BED and TSV files start with one `#`-prefixed or plain column-name line; the bedGraph has none).
 
-Any change to fields, keys, columns or the set of output files bumps the version and is recorded in
-[CHANGELOG.md](https://github.com/Abrinca/cramhook/blob/main/CHANGELOG.md). Coordinates in BED, bedGraph and TSV files are 0-based, half-open;
+A breaking change (a removed, renamed or retyped field, key or column, a removed output file, or
+a changed meaning of an existing value) bumps the version. Additive changes (new keys, columns,
+reasons or output files) keep it, so consumers should ignore what they do not know. Every change is
+recorded in [CHANGELOG.md](https://github.com/Abrinca/cramhook/blob/main/CHANGELOG.md). Coordinates in BED, bedGraph and TSV files are 0-based, half-open;
 VCF `POS` is 1-based. One exception: the `sa` column of `P.fish.tsv` copies positions from the SAM
 `SA` tag unchanged, so they are **1-based** (the `pos` column of the same file is 0-based).
 

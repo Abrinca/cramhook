@@ -64,11 +64,11 @@ MIN_BAIT_RECALL = {"ont": 0.80, "hifi": 0.95}
 KEEP = {
     "ont_lift": ["lift.stats.json", "qc.vcf", "qc.bed", "qc.findings.bed",
                  "qc.json", "qc.gc.bedgraph", "qc.haplotypes.tsv",
-                 "fish.fish.tsv", "fish.fish.json", "summary.json"],
-    "ont_bait": ["fish.fish.tsv", "fish.fish.json", "summary.json"],
+                 "fish.fish.tsv", "fish.fish.json", "fish.lengths.tsv", "summary.json"],
+    "ont_bait": ["fish.fish.tsv", "fish.fish.json", "fish.lengths.tsv", "summary.json"],
     "hifi_bait": ["qc.vcf", "qc.bed", "qc.findings.bed", "qc.json",
                   "qc.gc.bedgraph", "qc.haplotypes.tsv", "fish.fish.tsv",
-                  "fish.fish.json", "summary.json"],
+                  "fish.fish.json", "fish.lengths.tsv", "summary.json"],
 }
 # JSON keys dropped before storing/comparing (timings, machine-dependent).
 VOLATILE_KEYS = {"timing_s", "timings_s", "threads"}
