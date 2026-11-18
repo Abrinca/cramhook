@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use std::sync::{Mutex, MutexGuard};
 
 use rust_htslib::bam::header::HeaderRecord;
-use rust_htslib::bam::record::{Cigar, CigarString};
+use rust_htslib::bam::record::{Aux, Cigar, CigarString};
 use rust_htslib::bam::{self, Format, Header, Record, Writer};
 
 use cramhook::{BaitRecords, FishParams, FishScope, FishTier, run_fish};
@@ -48,12 +48,14 @@ fn workdir(name: &str) -> PathBuf {
 }
 
 /// One low-level BAM record (flags explicit so unmapped/supplementary can be built).
+#[derive(Default)]
 struct RawRec {
     name: String,
     pos: i64,
     cigar: Vec<Cigar>,
     seq: Vec<u8>,
     flags: u16,
+    sa: Option<String>,
 }
 
 fn params(threads: usize) -> FishParams {
@@ -87,6 +89,9 @@ fn run(name: &str, refseq: &[u8], recs: &[RawRec], p: &FishParams) -> PathBuf {
         rec.set_flags(r.flags);
         rec.set_mtid(-1);
         rec.set_mpos(-1);
+        if let Some(sa) = &r.sa {
+            rec.push_aux(b"SA", Aux::String(sa)).unwrap();
+        }
         w.write(&rec).unwrap();
     }
     drop(w);
@@ -144,6 +149,7 @@ fn build() -> (Vec<u8>, Vec<RawRec>, Vec<String>, Vec<String>, Vec<String>) {
             cigar: vec![Cigar::Match(READ_LEN as u32)],
             seq: r[s..s + READ_LEN].to_vec(),
             flags: if (s / STEP) % 2 == 1 { 0x10 } else { 0 },
+            ..Default::default()
         });
         s += STEP;
     }
@@ -158,6 +164,7 @@ fn build() -> (Vec<u8>, Vec<RawRec>, Vec<String>, Vec<String>, Vec<String>) {
             cigar: vec![Cigar::Match(500), Cigar::SoftClip(120)],
             seq,
             flags: if k % 2 == 0 { 0x10 } else { 0 },
+            ..Default::default()
         });
         clip.push(format!("clipR{k}"));
     }
@@ -170,6 +177,7 @@ fn build() -> (Vec<u8>, Vec<RawRec>, Vec<String>, Vec<String>, Vec<String>) {
             cigar: vec![Cigar::SoftClip(120), Cigar::Match(500)],
             seq,
             flags: if k % 2 == 1 { 0x10 } else { 0 },
+            ..Default::default()
         });
         clip.push(format!("clipL{k}"));
     }
@@ -228,6 +236,7 @@ fn build() -> (Vec<u8>, Vec<RawRec>, Vec<String>, Vec<String>, Vec<String>) {
         cigar: Vec::new(),
         seq: random_seq(500, 5),
         flags: 0x4,
+        ..Default::default()
     });
 
     (r, recs, clip, ins_reads, del_reads)
@@ -328,6 +337,7 @@ fn fish_clip_cap() {
             cigar: vec![Cigar::Match(200), Cigar::Ins(INS_LEN as u32), Cigar::Match(240), Cigar::SoftClip(120)],
             seq,
             flags: 0,
+            ..Default::default()
         });
         let mut seq = r[1599..1999].to_vec();
         seq.extend(std::iter::repeat_n(b'C', 600));
@@ -337,6 +347,7 @@ fn fish_clip_cap() {
             cigar: vec![Cigar::Match(400), Cigar::SoftClip(600)],
             seq,
             flags: 0,
+            ..Default::default()
         });
     }
 
@@ -497,6 +508,7 @@ fn fish_circular_origin_crossing_skipped_linear_counts() {
             cigar: vec![Cigar::SoftClip(120), Cigar::Match(500)],
             seq,
             flags: if k % 2 == 0 { 0x10 } else { 0 },
+            ..Default::default()
         });
     }
     for k in 0..5 {
@@ -508,6 +520,7 @@ fn fish_circular_origin_crossing_skipped_linear_counts() {
             cigar: vec![Cigar::Match(500), Cigar::SoftClip(120)],
             seq,
             flags: if k % 2 == 1 { 0x10 } else { 0 },
+            ..Default::default()
         });
     }
 
@@ -521,6 +534,94 @@ fn fish_circular_origin_crossing_skipped_linear_counts() {
 }
 
 #[test]
+fn fish_circular_near_end_origin_crossing_uses_sa_and_tol() {
+    let l = 2_000usize;
+    let r = random_seq(l, 25);
+
+    let mut r_seq = r[1490..1990].to_vec();
+    r_seq.extend(std::iter::repeat_n(b'A', 120));
+    let mut l_seq = vec![b'T'; 120];
+    l_seq.extend_from_slice(&r[5..505]);
+
+    let with_sa = vec![
+        // Right clip ending at 1990 (10 bp short) with SA partner starting at 1-based 3 (0-based 2).
+        RawRec {
+            name: "wrap_r".to_string(),
+            pos: 1490,
+            cigar: vec![Cigar::Match(500), Cigar::SoftClip(120)],
+            seq: r_seq.clone(),
+            flags: 0,
+            sa: Some("chr,3,+,120S500M,60,0;".to_string()),
+        },
+        // Left clip at pos 5 with SA partner ending at 1999 (1500 - 1 + 500 = 1999).
+        RawRec {
+            name: "wrap_l".to_string(),
+            pos: 5,
+            cigar: vec![Cigar::SoftClip(120), Cigar::Match(500)],
+            seq: l_seq.clone(),
+            flags: 0x10,
+            sa: Some("chr,1500,-,500M120S,60,0;".to_string()),
+        },
+    ];
+    let without_sa = vec![
+        RawRec {
+            name: "nosa_r".to_string(),
+            pos: 1490,
+            cigar: vec![Cigar::Match(500), Cigar::SoftClip(120)],
+            seq: r_seq,
+            flags: 0,
+            sa: None,
+        },
+        RawRec {
+            name: "nosa_l".to_string(),
+            pos: 5,
+            cigar: vec![Cigar::SoftClip(120), Cigar::Match(500)],
+            seq: l_seq,
+            flags: 0x10,
+            sa: None,
+        },
+    ];
+
+    // Default circ_end_tol = 100 with matching SA -> skipped (no clip rows).
+    let pc = run("near_circ_sa", &r, &with_sa, &params(1));
+    assert!(reasons_of(&tsv(&pc), "clip").is_empty(), "{:?}", tsv(&pc));
+    assert_eq!(json(&pc)["params"]["circ_end_tol"], 100);
+
+    // Same coordinates without SA -> both count as clips.
+    let pn = run("near_circ_nosa", &r, &without_sa, &params(1));
+    assert_eq!(
+        reasons_of(&tsv(&pn), "clip"),
+        vec!["nosa_l".to_string(), "nosa_r".to_string()],
+        "{:?}",
+        tsv(&pn)
+    );
+
+    // With SA but circ_end_tol = 0 -> both count as clips.
+    let pt0 = run("near_circ_tol0", &r, &with_sa, &FishParams { circ_end_tol: 0, ..params(1) });
+    assert_eq!(
+        reasons_of(&tsv(&pt0), "clip"),
+        vec!["wrap_l".to_string(), "wrap_r".to_string()],
+        "{:?}",
+        tsv(&pt0)
+    );
+    assert_eq!(json(&pt0)["params"]["circ_end_tol"], 0);
+
+    // On --linear -> both count as clips.
+    let pl = run(
+        "near_linear_sa",
+        &r,
+        &with_sa,
+        &FishParams { linear: vec!["chr".to_string()], ..params(1) },
+    );
+    assert_eq!(
+        reasons_of(&tsv(&pl), "clip"),
+        vec!["wrap_l".to_string(), "wrap_r".to_string()],
+        "{:?}",
+        tsv(&pl)
+    );
+}
+
+#[test]
 fn fish_hard_clip_errors() {
     let l = 1_000usize;
     let r = random_seq(l, 29);
@@ -530,6 +631,7 @@ fn fish_hard_clip_errors() {
         cigar: vec![Cigar::HardClip(5), Cigar::Match(500)],
         seq: r[100..600].to_vec(),
         flags: 0,
+        ..Default::default()
     }];
     let dir = workdir("hardclip");
     let fa = dir.join("ref.fa");
@@ -653,6 +755,7 @@ fn fish_linked_and_locus() {
             cigar: vec![Cigar::Match(500)],
             seq: r[s..s + 500].to_vec(),
             flags: if (s / 500) % 2 == 1 { 0x10 } else { 0 },
+            ..Default::default()
         });
         s += 100;
     }

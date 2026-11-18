@@ -132,9 +132,15 @@ pub struct FishParams {
     /// Chunk size override (bp) for the contig pass; `None` picks one from the
     /// genome size and threads. Test-only.
     pub chunk_size: Option<u64>,
-    /// Linear contigs; all others are circular (a clip at a contig end is an
-    /// origin crossing and does not count).
+    /// Linear contigs; all others are circular (a clip at a contig end — or
+    /// within `circ_end_tol` bp with a same-contig, same-strand `SA` partner
+    /// near the opposite end — is an origin crossing and does not count).
     pub linear: Vec<String>,
+    /// Circular contigs: a contig-end clip whose alignment stops within this
+    /// many bp of the end is an origin crossing (skipped) when the read's `SA`
+    /// has a same-contig, same-strand segment within this many bp of the
+    /// opposite end (`0` = exact ends only).
+    pub circ_end_tol: u64,
     /// `P.findings.bed`; required by `--locus` and `--scope findings` and the
     /// default scope becomes `findings` when it is given.
     pub findings: Option<PathBuf>,
@@ -188,6 +194,7 @@ impl Default for FishParams {
             threads: 1,
             chunk_size: None,
             linear: Vec::new(),
+            circ_end_tol: 100,
             findings: None,
             haplotypes: None,
             bait: Vec::new(),
@@ -275,6 +282,8 @@ pub struct FishParamsOut {
     pub locus: bool,
     pub locus_flank: u64,
     pub clip_min_len: u32,
+    /// `--circ-end-tol` (bp; 0 = exact ends only).
+    pub circ_end_tol: u64,
     pub indel_min_len: u32,
     pub indel_merge_gap: u32,
     pub indel_piece_min: u32,
@@ -784,6 +793,88 @@ impl Ctx<'_> {
     }
 }
 
+/// Reference span (M/D/N/=/X) of an `SA` CIGAR string, or `None` if invalid.
+fn sa_ref_span(cigar: &str) -> Option<u64> {
+    let cs = bam::record::CigarString::try_from(cigar).ok()?;
+    let mut span = 0u64;
+    for &c in &cs.0 {
+        let len = match c {
+            bam::record::Cigar::Match(l)
+            | bam::record::Cigar::Del(l)
+            | bam::record::Cigar::RefSkip(l)
+            | bam::record::Cigar::Equal(l)
+            | bam::record::Cigar::Diff(l) => l as u64,
+            _ => 0,
+        };
+        span = span.saturating_add(len);
+    }
+    Some(span)
+}
+
+/// Is a terminal clip on a contig an origin crossing that should be skipped?
+///
+/// On linear contigs, returns `false`. On circular contigs:
+/// - `left = true`: skipped when `pos == 0`, or `pos <= tol` and `SA` has a
+///   same-contig, same-strand entry whose reference end is `>= contig_len - tol`.
+/// - `left = false`: skipped when `end == contig_len`, or `end >= contig_len - tol`
+///   and `SA` has a same-contig, same-strand entry whose 0-based start (`pos - 1`)
+///   is `<= tol`.
+///
+/// `tol` is capped at `contig_len / 2`. When it is 0, only exact contig ends
+/// are skipped (and `SA` is not parsed). Invalid `SA` payloads are treated as
+/// having no partner (the clip counts). The partner is not checked to cover the
+/// clipped read bases: any same-contig, same-strand segment near the opposite
+/// end qualifies.
+#[allow(clippy::too_many_arguments)]
+fn is_circular_origin_clip(
+    circular: bool,
+    left: bool,
+    pos: u64,
+    end: u64,
+    contig: &str,
+    contig_len: u64,
+    strand: char,
+    tol: u64,
+    sa_raw: Option<&str>,
+) -> bool {
+    if !circular {
+        return false;
+    }
+    // On a contig shorter than 2 * tol every position would be "near an end";
+    // cap the tolerance at half the contig so the two ends stay distinct.
+    let tol = tol.min(contig_len / 2);
+    if left {
+        if pos == 0 {
+            return true;
+        }
+        if tol == 0 || pos > tol {
+            return false;
+        }
+        let threshold = contig_len.saturating_sub(tol);
+        let Some(s) = sa_raw else { return false };
+        let Ok(entries) = crate::translate::parse_sa(s) else { return false };
+        entries.iter().any(|e| {
+            e.rname == contig
+                && e.strand == strand
+                && sa_ref_span(&e.cigar)
+                    .map(|span| e.pos.saturating_sub(1).saturating_add(span))
+                    .is_some_and(|re| re >= threshold)
+        })
+    } else {
+        if end == contig_len {
+            return true;
+        }
+        if tol == 0 || end < contig_len.saturating_sub(tol) {
+            return false;
+        }
+        let Some(s) = sa_raw else { return false };
+        let Ok(entries) = crate::translate::parse_sa(s) else { return false };
+        entries
+            .iter()
+            .any(|e| e.rname == contig && e.strand == strand && e.pos.saturating_sub(1) <= tol)
+    }
+}
+
 /// The record's `SA` targets as `contig:pos:strand` joined by `,`, `.` if none.
 fn sa_string(rec: &bam::Record) -> String {
     match rec.aux(b"SA") {
@@ -932,10 +1023,41 @@ fn process_record(
         }
     };
 
-    // clip: a terminal soft clip >= clip_min_len; a contig-end clip is an origin
-    // crossing on a circular contig (skipped) but counts on a linear one.
+    // clip: a terminal soft clip >= clip_min_len; on a circular contig a clip
+    // at an exact contig end, or within `circ_end_tol` bp with a same-contig,
+    // same-strand SA partner within `circ_end_tol` bp of the opposite end, is
+    // an origin crossing (skipped). On a linear contig every clip counts.
     if !ctx.params.no_clips {
-        if lclip && lead >= ctx.params.clip_min_len && (pos != 0 || !circular) {
+        let tol = ctx.params.circ_end_tol;
+        let check_left = lclip && lead >= ctx.params.clip_min_len;
+        let check_right = rclip && trail >= ctx.params.clip_min_len;
+        let need_sa = circular
+            && tol > 0
+            && ((check_left && pos > 0 && (pos as u64) <= tol)
+                || (check_right
+                    && end != contig_len
+                    && (end as u64) >= (contig_len as u64).saturating_sub(tol)));
+        let sa_raw = if need_sa {
+            match rec.aux(b"SA") {
+                Ok(Aux::String(s)) => Some(s),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        if check_left
+            && !is_circular_origin_clip(
+                circular,
+                true,
+                pos as u64,
+                end as u64,
+                &contig,
+                contig_len as u64,
+                strand,
+                tol,
+                sa_raw,
+            )
+        {
             let p = pos as u64;
             let base = Event {
                 len: lead as u64,
@@ -949,7 +1071,19 @@ fn process_record(
             };
             offerings(R_CLIP, base, ctx.event_attr(tid, p), &mut evs);
         }
-        if rclip && trail >= ctx.params.clip_min_len && (end != contig_len || !circular) {
+        if check_right
+            && !is_circular_origin_clip(
+                circular,
+                false,
+                pos as u64,
+                end as u64,
+                &contig,
+                contig_len as u64,
+                strand,
+                tol,
+                sa_raw,
+            )
+        {
             let p = (end - 1) as u64;
             let base = Event {
                 len: trail as u64,
@@ -1950,6 +2084,7 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
             locus: params.locus,
             locus_flank: params.locus_flank,
             clip_min_len: params.clip_min_len,
+            circ_end_tol: params.circ_end_tol,
             indel_min_len: params.indel_min_len,
             indel_merge_gap: params.indel_merge_gap,
             indel_piece_min: params.indel_piece_min,
@@ -2208,5 +2343,282 @@ mod cap_unit {
             got.sort();
             assert_eq!(got, expect, "permutation {k}");
         }
+    }
+}
+
+#[cfg(test)]
+mod circ_clip_unit {
+    use super::*;
+
+    const LEN: u64 = 2_000;
+    const TOL: u64 = 100;
+
+    #[test]
+    fn exact_ends_skipped_without_sa_even_at_tol_zero() {
+        assert!(is_circular_origin_clip(true, true, 0, 500, "chr", LEN, '+', TOL, None));
+        assert!(is_circular_origin_clip(true, true, 0, 500, "chr", LEN, '+', 0, None));
+        assert!(is_circular_origin_clip(true, false, 1500, LEN, "chr", LEN, '-', TOL, None));
+        assert!(is_circular_origin_clip(true, false, 1500, LEN, "chr", LEN, '-', 0, None));
+    }
+
+    #[test]
+    fn linear_contig_never_skips() {
+        assert!(!is_circular_origin_clip(false, true, 0, 500, "chr", LEN, '+', TOL, None));
+        assert!(!is_circular_origin_clip(
+            false,
+            false,
+            1500,
+            LEN,
+            "chr",
+            LEN,
+            '+',
+            TOL,
+            Some("chr,3,+,120S400M,60,0;")
+        ));
+    }
+
+    #[test]
+    fn near_end_with_matching_partner_skipped() {
+        // Right clip stopping at 1990 with SA starting at 1-based 3 (0-based 2 <= 100).
+        assert!(is_circular_origin_clip(
+            true,
+            false,
+            1500,
+            1990,
+            "chr",
+            LEN,
+            '+',
+            TOL,
+            Some("chr,3,+,120S400M,60,0;")
+        ));
+        // Inclusive boundaries: end == LEN - TOL (1900) and SA start == TOL (1-based 101).
+        assert!(is_circular_origin_clip(
+            true,
+            false,
+            1500,
+            1900,
+            "chr",
+            LEN,
+            '-',
+            TOL,
+            Some("chr,101,-,120S400M,60,0;")
+        ));
+        // Left clip at pos 5 with SA ending at 1995 (>= 1900), using D/=/X ops.
+        // 1-based 1801 -> 0-based 1800 + (100= + 50D + 45X) = 1995.
+        assert!(is_circular_origin_clip(
+            true,
+            true,
+            5,
+            505,
+            "chr",
+            LEN,
+            '+',
+            TOL,
+            Some("chr,1801,+,100=50D45X120S,60,0;")
+        ));
+        // Multiple SA entries: one non-matching, second matching.
+        assert!(is_circular_origin_clip(
+            true,
+            true,
+            100,
+            600,
+            "chr",
+            LEN,
+            '-',
+            TOL,
+            Some("other,1,-,100M,60,0;chr,1701,-,200M,60,0;")
+        ));
+    }
+
+    #[test]
+    fn near_end_without_or_invalid_sa_not_skipped() {
+        assert!(!is_circular_origin_clip(true, false, 1500, 1990, "chr", LEN, '+', TOL, None));
+        assert!(!is_circular_origin_clip(true, true, 5, 505, "chr", LEN, '+', TOL, None));
+        assert!(!is_circular_origin_clip(true, false, 1500, 1990, "chr", LEN, '+', TOL, Some("bad")));
+        assert!(!is_circular_origin_clip(true, true, 5, 505, "chr", LEN, '+', TOL, Some("")));
+    }
+
+    #[test]
+    fn partner_other_contig_not_skipped() {
+        assert!(!is_circular_origin_clip(
+            true,
+            false,
+            1500,
+            1990,
+            "chr",
+            LEN,
+            '+',
+            TOL,
+            Some("other,3,+,120S400M,60,0;")
+        ));
+        assert!(!is_circular_origin_clip(
+            true,
+            true,
+            5,
+            505,
+            "chr",
+            LEN,
+            '+',
+            TOL,
+            Some("other,1801,+,200M120S,60,0;")
+        ));
+    }
+
+    #[test]
+    fn partner_wrong_strand_not_skipped() {
+        assert!(!is_circular_origin_clip(
+            true,
+            false,
+            1500,
+            1990,
+            "chr",
+            LEN,
+            '+',
+            TOL,
+            Some("chr,3,-,120S400M,60,0;")
+        ));
+        assert!(!is_circular_origin_clip(
+            true,
+            true,
+            5,
+            505,
+            "chr",
+            LEN,
+            '-',
+            TOL,
+            Some("chr,1801,+,200M120S,60,0;")
+        ));
+    }
+
+    #[test]
+    fn too_far_record_or_partner_not_skipped() {
+        // Partner too far from start (1-based 102 -> 0-based 101 > 100).
+        assert!(!is_circular_origin_clip(
+            true,
+            false,
+            1500,
+            1990,
+            "chr",
+            LEN,
+            '+',
+            TOL,
+            Some("chr,102,+,120S400M,60,0;")
+        ));
+        // Record too far from right end (1899 < 1900).
+        assert!(!is_circular_origin_clip(
+            true,
+            false,
+            1400,
+            1899,
+            "chr",
+            LEN,
+            '+',
+            TOL,
+            Some("chr,3,+,120S400M,60,0;")
+        ));
+        // Partner ends too far from right end (1700 + 199 = 1899 < 1900).
+        assert!(!is_circular_origin_clip(
+            true,
+            true,
+            5,
+            505,
+            "chr",
+            LEN,
+            '+',
+            TOL,
+            Some("chr,1701,+,199M120S,60,0;")
+        ));
+        // Record too far from left end (101 > 100).
+        assert!(!is_circular_origin_clip(
+            true,
+            true,
+            101,
+            601,
+            "chr",
+            LEN,
+            '+',
+            TOL,
+            Some("chr,1801,+,200M120S,60,0;")
+        ));
+    }
+
+    #[test]
+    fn tol_zero_rejects_near_end_even_with_partner() {
+        assert!(!is_circular_origin_clip(
+            true,
+            false,
+            1500,
+            1990,
+            "chr",
+            LEN,
+            '+',
+            0,
+            Some("chr,1,+,120S400M,60,0;")
+        ));
+        assert!(!is_circular_origin_clip(
+            true,
+            true,
+            1,
+            501,
+            "chr",
+            LEN,
+            '+',
+            0,
+            Some("chr,1801,+,200M120S,60,0;")
+        ));
+    }
+
+    #[test]
+    fn tol_capped_at_half_contig_len() {
+        // len 50, tol 100 -> effective 25: a right clip ending at 20 and a left
+        // clip starting at 30 are not near an end.
+        assert!(!is_circular_origin_clip(
+            true,
+            false,
+            0,
+            20,
+            "chr",
+            50,
+            '+',
+            100,
+            Some("chr,1,+,10S30M,60,0;")
+        ));
+        assert!(!is_circular_origin_clip(
+            true,
+            true,
+            30,
+            45,
+            "chr",
+            50,
+            '+',
+            100,
+            Some("chr,21,+,30M10S,60,0;")
+        ));
+    }
+
+    #[test]
+    fn saturates_when_tol_exceeds_contig_len() {
+        assert!(is_circular_origin_clip(
+            true,
+            false,
+            10,
+            40,
+            "chr",
+            50,
+            '+',
+            100,
+            Some("chr,1,+,10S30M,60,0;")
+        ));
+        assert!(is_circular_origin_clip(
+            true,
+            true,
+            10,
+            40,
+            "chr",
+            50,
+            '+',
+            100,
+            Some("chr,21,+,30M10S,60,0;")
+        ));
     }
 }

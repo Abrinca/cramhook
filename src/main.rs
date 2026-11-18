@@ -438,6 +438,12 @@ struct FishArgs {
     /// Terminal clip length threshold.
     #[arg(long, default_value_t = 50)]
     clip_min_len: u32,
+    /// Circular contigs: a contig-end clip whose alignment stops within this
+    /// many bp of the end is an origin crossing (skipped) when the read's SA
+    /// has a same-contig, same-strand segment within this many bp of the
+    /// opposite end. 0 = exact ends only.
+    #[arg(long, default_value_t = 100)]
+    circ_end_tol: u64,
     /// Minimum merged large-indel size.
     #[arg(long, default_value_t = 50)]
     indel_min_len: u32,
@@ -967,6 +973,7 @@ fn run_fish_cmd(a: FishArgs) -> Result<()> {
         locus: a.locus,
         locus_flank: a.locus_flank,
         clip_min_len: a.clip_min_len,
+        circ_end_tol: a.circ_end_tol,
         indel_min_len: a.indel_min_len,
         indel_merge_gap: a.indel_merge_gap,
         indel_piece_min: a.indel_piece_min,

@@ -11,12 +11,13 @@ cramhook fish --in old.cram --ref asm.fa --out-prefix P [--threads N] [--linear 
   [--no-unmapped] [--no-clips] [--no-indels] [--no-linked] \
   [--locus [--locus-flank 5000]] [--bait bait.fa] [--bait-min-input-mb MB] \
   [--bait-records any|primary] \
-  [--clip-min-len 50] [--indel-min-len 50] [--indel-merge-gap 50] [--indel-piece-min 10] \
+  [--clip-min-len 50] [--circ-end-tol 100] [--indel-min-len 50] [--indel-merge-gap 50] [--indel-piece-min 10] \
   [--clip-cap N [--clip-bin 2000]] [--progress]
 ```
 
 | Flag | Default | Purpose |
 |------|---------|---------|
+| `--circ-end-tol BP` | `100` | circular contigs: a clip stopping within `BP` of a contig end is an origin crossing (skipped) when `SA` has a same-contig, same-strand segment within `BP` of the opposite end (`0` = exact ends only; capped at half the contig length; the partner is not checked to cover the clipped bases) |
 | `--clip-cap N` | `0` (off) | keep at most `N` clip-selected reads per bin of `--clip-bin` reference bp; see [Capping clip reads](#capping-clip-reads) |
 | `--clip-bin BP` | `2000` | bin size for `--clip-cap`; `0` is an error (`--clip-bin must be positive`) |
 | `--progress` | off | machine-readable progress on stderr, one JSON object per line (phases `pass`, `bait_lift` with `--bait`, `payload`, `output`); see [output-format.md](../reference/output-formats.md#progress-stream-progress) |
@@ -31,7 +32,7 @@ of its counted records qualifies for any enabled category:
 | reason | a read is selected when | detail |
 |---|---|---|
 | `unmapped` | it has an unmapped record (0x4), placed or unplaced | `.` |
-| `clip` | a terminal soft clip ≥ `--clip-min-len`; a clip at a contig end of a **circular** contig is an origin crossing (skipped), on `--linear` contigs it counts | `side=left;len=N` / `side=right;len=N` |
+| `clip` | a terminal soft clip ≥ `--clip-min-len`; on a **circular** contig a clip at an exact contig end — or within `--circ-end-tol` bp with a same-contig, same-strand `SA` segment within `--circ-end-tol` bp of the opposite end — is an origin crossing (skipped), on `--linear` contigs it counts | `side=left;len=N` / `side=right;len=N` |
 | `large_ins` / `large_del` | a merged large indel (`--indel-merge-gap`, `--indel-piece-min`) ≥ `--indel-min-len` | `len=N;at=P` |
 | `linked` | the read is listed in `--haplotypes` for a group whose span overlaps a finding of tier ≥ `--min-tier` (findings scope) or any group (genome scope) | `group=N` |
 | `locus` | any counted record overlaps a finding (tier ≥ `--min-tier`) ± `--locus-flank` | `.` |
