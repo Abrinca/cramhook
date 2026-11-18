@@ -247,7 +247,10 @@ finding (numeric `finding_<n>`, `.` last). Columns `read`, `length`, `reason`, `
 targets as `contig:pos:strand`, or `.`). Per read and reason, it keeps the largest event per
 distinct finding (including `.` for events outside every finding; ties: smallest position, primary
 over supplementary). A read with evidence in two findings, or inside one and outside all, gets one
-row each. The `detail` values per reason are listed in [fish.md](../commands/fish.md#selection).
+row each. The `detail` values per reason are listed in [fish.md](../commands/fish.md#selection); for
+`hairpin`, `detail` is `arm1=q<s>-<e>,r<s>-<e>,<strand>;arm2=q<s>-<e>,r<s>-<e>,<strand>` where
+`arm1` is the arm earlier in the read, `q` coordinates are 0-based half-open in original read
+orientation, and `r` coordinates are 0-based half-open reference coordinates.
 
 ### P.fish.json
 
@@ -259,8 +262,10 @@ thresholds used, and timing. Top-level keys:
 | `format_version` | 1 |
 | `reads` | `reads`, `bp` (distinct selected reads, summed length) and `by_reason` (per reason: `reads`, `bp`; a read can count under more than one) |
 | `cap` | reads dropped by `--clip-cap`: `reads`, `bp` (summed read length); zeros when the cap is off. Dropped reads are not in `reads` or the outputs; see [fish.md](../commands/fish.md#capping-clip-reads) |
+| `hairpin_detected` | `reads`, `records` with >= 1 clip that is clip-enabled (not `--no-clips`), in scope (`--scope`), not an origin crossing, and converted to `hairpin` (or would be converted under `--no-hairpins`); 0 when `--no-clips` is set |
+| `origin_crossing_skipped` | origin-crossing clips skipped on circular contigs before `--scope` filtering (unselected; all 0 when `--no-clips` is set): `reads` (distinct reads), `records` (distinct records), `clips` (skipped clip events: `clips_exact + clips_near_end`; a record skipped at both ends counts 2 clips, 1 record), `clips_exact` (at exact contig ends), `clips_near_end` (via `--circ-end-tol` + `SA`) |
 | `records` | input record counts: `total`, `primary`, `supplementary`, `secondary`, `duplicate`, `qcfail`, `unmapped`, `mapped_bp`, `unmapped_bp` |
-| `params` | `scope`, `min_tier`, `finding_pad`, `unmapped`, `clips`, `indels`, `linked`, `bait`, `locus`, `locus_flank`, `clip_min_len`, `circ_end_tol`, `indel_min_len`, `indel_merge_gap`, `indel_piece_min`, `clip_cap` (0 = off), `clip_bin` |
+| `params` | `scope`, `min_tier`, `finding_pad`, `unmapped`, `clips`, `hairpins`, `indels`, `linked`, `bait`, `locus`, `locus_flank`, `clip_min_len`, `circ_end_tol`, `hairpin_min_overlap`, `hairpin_max_gap`, `hairpin_max_gap_frac`, `hairpin_min_arm_frac`, `indel_min_len`, `indel_merge_gap`, `indel_piece_min`, `clip_cap` (0 = off), `clip_bin` |
 | `bait` | `null` without `--bait`; see below |
 | `notes` | categories turned off or skipped (e.g. `linked` without `--haplotypes`) |
 | `timing_s` | `pass`, `total` (seconds) |

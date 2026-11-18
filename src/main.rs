@@ -423,6 +423,9 @@ struct FishArgs {
     /// Do not select terminal clips.
     #[arg(long)]
     no_clips: bool,
+    /// Do not emit `hairpin` events (hairpin-converted clips are suppressed and do not fall back to `clip`).
+    #[arg(long)]
+    no_hairpins: bool,
     /// Do not select large indels.
     #[arg(long)]
     no_indels: bool,
@@ -444,6 +447,18 @@ struct FishArgs {
     /// opposite end. 0 = exact ends only.
     #[arg(long, default_value_t = 100)]
     circ_end_tol: u64,
+    /// Hairpin: minimum reference overlap as a fraction of the shorter arm's reference span.
+    #[arg(long, hide = true, default_value_t = 0.5, value_parser = parse_max_de)]
+    hairpin_min_overlap: f64,
+    /// Hairpin: minimum absolute tolerance (bp) for query gap/overlap between the two arms.
+    #[arg(long, hide = true, default_value_t = 200)]
+    hairpin_max_gap: u64,
+    /// Hairpin: fractional tolerance (× read length) for query gap/overlap between the two arms.
+    #[arg(long, hide = true, default_value_t = 0.02, value_parser = parse_max_de)]
+    hairpin_max_gap_frac: f64,
+    /// Hairpin: minimum query length of each arm as a fraction of read length.
+    #[arg(long, hide = true, default_value_t = 0.2, value_parser = parse_max_de)]
+    hairpin_min_arm_frac: f64,
     /// Minimum merged large-indel size.
     #[arg(long, default_value_t = 50)]
     indel_min_len: u32,
@@ -968,12 +983,17 @@ fn run_fish_cmd(a: FishArgs) -> Result<()> {
         finding_pad: a.finding_pad,
         no_unmapped: a.no_unmapped,
         no_clips: a.no_clips,
+        no_hairpins: a.no_hairpins,
         no_indels: a.no_indels,
         no_linked: a.no_linked,
         locus: a.locus,
         locus_flank: a.locus_flank,
         clip_min_len: a.clip_min_len,
         circ_end_tol: a.circ_end_tol,
+        hairpin_min_overlap: a.hairpin_min_overlap,
+        hairpin_max_gap: a.hairpin_max_gap,
+        hairpin_max_gap_frac: a.hairpin_max_gap_frac,
+        hairpin_min_arm_frac: a.hairpin_min_arm_frac,
         indel_min_len: a.indel_min_len,
         indel_merge_gap: a.indel_merge_gap,
         indel_piece_min: a.indel_piece_min,

@@ -8,7 +8,7 @@ reads only. `fish` selects reads only; the reassembly is up to the caller.
 cramhook fish --in old.cram --ref asm.fa --out-prefix P [--threads N] [--linear c1,c2] \
   [--findings P.findings.bed] [--haplotypes P.haplotypes.tsv] \
   [--scope findings|genome] [--min-tier yellow|orange|red] [--finding-pad 1000] \
-  [--no-unmapped] [--no-clips] [--no-indels] [--no-linked] \
+  [--no-unmapped] [--no-clips] [--no-hairpins] [--no-indels] [--no-linked] \
   [--locus [--locus-flank 5000]] [--bait bait.fa] [--bait-min-input-mb MB] \
   [--bait-records any|primary] \
   [--clip-min-len 50] [--circ-end-tol 100] [--indel-min-len 50] [--indel-merge-gap 50] [--indel-piece-min 10] \
@@ -17,7 +17,8 @@ cramhook fish --in old.cram --ref asm.fa --out-prefix P [--threads N] [--linear 
 
 | Flag | Default | Purpose |
 |------|---------|---------|
-| `--circ-end-tol BP` | `100` | circular contigs: a clip stopping within `BP` of a contig end is an origin crossing (skipped) when `SA` has a same-contig, same-strand segment within `BP` of the opposite end (`0` = exact ends only; capped at half the contig length; the partner is not checked to cover the clipped bases) |
+| `--no-hairpins` | off | do not emit `hairpin` events (and do not fall back to `clip` for them, so a read selected only because of a hairpin is not selected; `hairpin_detected` in `P.fish.json` is still counted whenever clips are enabled and in scope) |
+| `--circ-end-tol BP` | `100` | circular contigs: a clip stopping within `BP` of a contig end is an origin crossing (skipped) when `SA` has a same-contig, same-strand segment within `BP` of the opposite end (`0` = exact ends only; capped at half the contig length; the partner is read from `SA` and not checked to be a counted record or to cover the clipped bases) |
 | `--clip-cap N` | `0` (off) | keep at most `N` clip-selected reads per bin of `--clip-bin` reference bp; see [Capping clip reads](#capping-clip-reads) |
 | `--clip-bin BP` | `2000` | bin size for `--clip-cap`; `0` is an error (`--clip-bin must be positive`) |
 | `--progress` | off | machine-readable progress on stderr, one JSON object per line (phases `pass`, `bait_lift` with `--bait`, `payload`, `output`); see [output-format.md](../reference/output-formats.md#progress-stream-progress) |
@@ -32,16 +33,23 @@ of its counted records qualifies for any enabled category:
 | reason | a read is selected when | detail |
 |---|---|---|
 | `unmapped` | it has an unmapped record (0x4), placed or unplaced | `.` |
-| `clip` | a terminal soft clip ≥ `--clip-min-len`; on a **circular** contig a clip at an exact contig end — or within `--circ-end-tol` bp with a same-contig, same-strand `SA` segment within `--circ-end-tol` bp of the opposite end — is an origin crossing (skipped), on `--linear` contigs it counts | `side=left;len=N` / `side=right;len=N` |
+| `clip` | a terminal soft clip ≥ `--clip-min-len` (not converted to `hairpin`); on a **circular** contig a clip at an exact contig end — or within `--circ-end-tol` bp with a same-contig, same-strand `SA` segment within `--circ-end-tol` bp of the opposite end — is an origin crossing (skipped), on `--linear` contigs it counts | `side=left;len=N` / `side=right;len=N` |
+| `hairpin` | a qualifying terminal clip (≥ `--clip-min-len`, in scope, not an origin crossing) is paired with an opposite-strand `SA` entry on the same contig whose reference overlap is ≥ 50 % of the shorter span, whose original-orientation query interval is adjacent to the record's (\|gap or overlap\| ≤ max(200, 0.02 × read length)) with each arm ≥ 20 % of the read length and ≥ `--clip-min-len`, and whose arm covers the clipped read region leaving residual < `--clip-min-len`. Any pair of counted records qualifies (primary/supplementary or supplementary/supplementary); the partner is taken from the record's `SA` tag (not checked to be a counted record) | `arm1=q<s>-<e>,r<s>-<e>,<strand>;arm2=q<s>-<e>,r<s>-<e>,<strand>` (`arm1` earlier in the read; `q` = 0-based half-open original-orientation query coords, `r` = 0-based half-open reference coords) |
 | `large_ins` / `large_del` | a merged large indel (`--indel-merge-gap`, `--indel-piece-min`) ≥ `--indel-min-len` | `len=N;at=P` |
 | `linked` | the read is listed in `--haplotypes` for a group whose span overlaps a finding of tier ≥ `--min-tier` (findings scope) or any group (genome scope) | `group=N` |
 | `locus` | any counted record overlaps a finding (tier ≥ `--min-tier`) ± `--locus-flank` | `.` |
 | `bait` | with `--bait`: a full remap to assembly + bait places one of the read's counted records on a bait contig (see below) | `contig=<bait>;mapq=<MAPQ>;s1=<s1>;s2=<s2>;record=primary\|supplementary` |
 
-Scope `findings` (the default when `--findings` is given) counts `clip`/`large_*` only when the
-event position (clip position, indel start) is within a finding of tier ≥ `--min-tier` ±
+Scope `findings` (the default when `--findings` is given) counts `clip`/`hairpin`/`large_*` only when
+the event position (clip position, indel start) is within a finding of tier ≥ `--min-tier` ±
 `--finding-pad`; scope `genome` counts them anywhere and `unmapped` is genome-wide in both.
-`--locus` and `--scope findings` require `--findings`. There is no positive `--linked` flag: linked
+When a hairpin partner leaves a residual ≥ `--clip-min-len` in the clipped region, or on the read's
+other clip side, that clip stays `clip` (so a hairpin read with extra unaligned sequence keeps its
+`clip` reason). With `--no-hairpins`, hairpin-converted clips are not emitted as either `hairpin` or
+`clip` (though `hairpin_detected` in `P.fish.json` still counts in-scope, clip-enabled converted
+events; both `hairpin_detected` and `origin_crossing_skipped` are 0 when `--no-clips` is set, and
+`origin_crossing_skipped` is counted before `--scope` filtering). `--locus` and `--scope findings`
+require `--findings`. There is no positive `--linked` flag: linked
 selection is on by default and requires `--haplotypes` (if no file is given it is silently skipped
 and recorded in the JSON; `--no-linked` turns it off). Reads that merely end at a position, or agree
 with the assembly, are not selected; site-only and depth-only findings contribute only through
@@ -64,8 +72,9 @@ step wants more depth, and use `--clip-min-len` (instead) when the noise is unif
 hotspot-driven.
 
 - **Eligibility.** Only a read whose *sole* reason is `clip` can be dropped. A read selected by
-  `unmapped`, `large_ins`, `large_del`, `linked`, `locus` or `bait` is never dropped, even when it
-  also has a clip. Every clip-only read is eligible, whatever the length of its clip.
+  `hairpin`, `unmapped`, `large_ins`, `large_del`, `linked`, `locus` or `bait` is never dropped, even
+  when it also has a `clip` event (and `hairpin` rows do not consume cap slots). Every clip-only read
+  is eligible, whatever the length of its clip.
 - **Binning.** A read is placed by its best clip (the largest, then the smallest position): bin =
   (contig, position / `--clip-bin`).
 - **Choice.** In a bin with more than `N` eligible reads, the `N` reads with the largest best-clip
@@ -120,7 +129,7 @@ always records `mode` and the number of supplementary-only reads; an absent flag
 |---|---|
 | `P.fastq.gz` | the selected reads (BGZF), each once, in original orientation, sorted by read name |
 | `P.fish.tsv` | one row per (read, reason, finding) |
-| `P.fish.json` | selected reads and bp per reason and in total, reads dropped by `--clip-cap`, input record counts, categories and thresholds, timing; a `bait` block with `--bait` |
+| `P.fish.json` | selected reads and bp per reason and in total, reads dropped by `--clip-cap`, `hairpin_detected` counts, `origin_crossing_skipped` counts, input record counts, categories and thresholds, timing; a `bait` block with `--bait` |
 | `P.bait_ref.fa` (with `--bait`) | assembly + bait contigs, indexed |
 | `P.bait.cram` (with `--bait`) | the bait lift, with index |
 

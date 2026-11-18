@@ -527,10 +527,22 @@ fn fish_circular_origin_crossing_skipped_linear_counts() {
     // Circular (default): both ends are origin crossings -> no clip rows.
     let pc = run("circ", &r, &recs, &params(1));
     assert!(reasons_of(&tsv(&pc), "clip").is_empty(), "{:?}", tsv(&pc));
+    let jc = json(&pc);
+    assert_eq!(jc["origin_crossing_skipped"]["reads"], 10, "{jc}");
+    assert_eq!(jc["origin_crossing_skipped"]["records"], 10, "{jc}");
+    assert_eq!(jc["origin_crossing_skipped"]["clips"], 10, "{jc}");
+    assert_eq!(jc["origin_crossing_skipped"]["clips_exact"], 10, "{jc}");
+    assert_eq!(jc["origin_crossing_skipped"]["clips_near_end"], 0, "{jc}");
+    assert_eq!(
+        jc["origin_crossing_skipped"]["clips_exact"].as_u64().unwrap()
+            + jc["origin_crossing_skipped"]["clips_near_end"].as_u64().unwrap(),
+        jc["origin_crossing_skipped"]["clips"].as_u64().unwrap()
+    );
 
     // Linear: the contig-end clips count.
     let pl = run("linear", &r, &recs, &FishParams { linear: vec!["chr".to_string()], ..params(1) });
     assert_eq!(reasons_of(&tsv(&pl), "clip").len(), 10, "{:?}", tsv(&pl));
+    assert_eq!(json(&pl)["origin_crossing_skipped"]["clips"], 0);
 }
 
 #[test]
@@ -585,7 +597,18 @@ fn fish_circular_near_end_origin_crossing_uses_sa_and_tol() {
     // Default circ_end_tol = 100 with matching SA -> skipped (no clip rows).
     let pc = run("near_circ_sa", &r, &with_sa, &params(1));
     assert!(reasons_of(&tsv(&pc), "clip").is_empty(), "{:?}", tsv(&pc));
-    assert_eq!(json(&pc)["params"]["circ_end_tol"], 100);
+    let jc = json(&pc);
+    assert_eq!(jc["params"]["circ_end_tol"], 100);
+    assert_eq!(jc["origin_crossing_skipped"]["reads"], 2, "{jc}");
+    assert_eq!(jc["origin_crossing_skipped"]["records"], 2, "{jc}");
+    assert_eq!(jc["origin_crossing_skipped"]["clips"], 2, "{jc}");
+    assert_eq!(jc["origin_crossing_skipped"]["clips_exact"], 0, "{jc}");
+    assert_eq!(jc["origin_crossing_skipped"]["clips_near_end"], 2, "{jc}");
+    assert_eq!(
+        jc["origin_crossing_skipped"]["clips_exact"].as_u64().unwrap()
+            + jc["origin_crossing_skipped"]["clips_near_end"].as_u64().unwrap(),
+        jc["origin_crossing_skipped"]["clips"].as_u64().unwrap()
+    );
 
     // Same coordinates without SA -> both count as clips.
     let pn = run("near_circ_nosa", &r, &without_sa, &params(1));
@@ -2265,4 +2288,435 @@ fn fish_bait_records_any_vs_primary() {
     let fq = fastq_entries(&primary_prefix);
     assert!(fq.contains_key("plain"), "{:?}", fq.keys().collect::<Vec<_>>());
     assert!(!fq.contains_key("chim"), "chim must not be selected under primary");
+}
+
+#[test]
+fn fish_hairpin_pair_selects_and_no_hairpins_suppresses() {
+    let l = 10_000usize;
+    let r = random_seq(l, 801);
+    let mut orig = random_seq(7, 802);
+    orig.extend_from_slice(&r[3834..6484]); // 2650 bp
+    orig.extend_from_slice(&revcomp(&r[3864..6441])); // 2577 bp
+    assert_eq!(orig.len(), 5234);
+
+    let recs = vec![
+        RawRec {
+            name: "hp1".to_string(),
+            pos: 3834,
+            cigar: vec![Cigar::SoftClip(7), Cigar::Match(2650), Cigar::SoftClip(2577)],
+            seq: orig.clone(),
+            flags: 0,
+            sa: Some("chr,3865,-,2577M2657S,60,0;".to_string()),
+        },
+        RawRec {
+            name: "hp1".to_string(),
+            pos: 3864,
+            cigar: vec![Cigar::Match(2577), Cigar::SoftClip(2657)],
+            seq: revcomp(&orig),
+            flags: 0x10 | 0x800,
+            sa: Some("chr,3835,+,7S2650M2577S,60,0;".to_string()),
+        },
+    ];
+
+    let p1 = run("hp_default_t1", &r, &recs, &FishParams { clip_min_len: 150, chunk_size: Some(1000), ..params(1) });
+    let p4 = run("hp_default_t4", &r, &recs, &FishParams { clip_min_len: 150, chunk_size: Some(1000), ..params(4) });
+    let rows = tsv(&p1);
+    assert_eq!(reasons_of(&rows, "hairpin"), vec!["hp1".to_string()], "{rows:?}");
+    assert!(reasons_of(&rows, "clip").is_empty(), "{rows:?}");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        rows[0][8],
+        "arm1=q7-2657,r3834-6484,+;arm2=q2657-5234,r3864-6441,-",
+        "{rows:?}"
+    );
+    let fq = fastq_entries(&p1);
+    assert_eq!(fq["hp1"].0.as_bytes(), orig.as_slice());
+
+    let j = json(&p1);
+    assert_eq!(j["reads"]["reads"], 1, "{j}");
+    assert_eq!(j["reads"]["by_reason"]["hairpin"]["reads"], 1, "{j}");
+    assert_eq!(j["reads"]["by_reason"]["hairpin"]["bp"], 5234, "{j}");
+    assert_eq!(j["hairpin_detected"]["reads"], 1, "{j}");
+    assert_eq!(j["hairpin_detected"]["records"], 2, "{j}");
+    assert_eq!(j["params"]["hairpins"], true, "{j}");
+    assert_eq!(j["params"]["hairpin_min_overlap"], 0.5, "{j}");
+    assert_eq!(j["params"]["hairpin_max_gap"], 200, "{j}");
+    assert_eq!(j["params"]["hairpin_max_gap_frac"], 0.02, "{j}");
+    assert_eq!(j["params"]["hairpin_min_arm_frac"], 0.2, "{j}");
+
+    // Thread identity.
+    assert_eq!(
+        std::fs::read(p1.with_extension("fish.tsv")).unwrap(),
+        std::fs::read(p4.with_extension("fish.tsv")).unwrap()
+    );
+    assert_eq!(fastq(&p1), fastq(&p4));
+    assert_eq!(strip_timing(&p1), strip_timing(&p4));
+
+    // --no-hairpins: read is NOT selected (does not fall back to clip),
+    // while hairpin_detected still reports {reads: 1, records: 2} identically across threads.
+    let p_no = run(
+        "hp_no_hairpins_t1",
+        &r,
+        &recs,
+        &FishParams { clip_min_len: 150, no_hairpins: true, chunk_size: Some(1000), ..params(1) },
+    );
+    let p_no4 = run(
+        "hp_no_hairpins_t4",
+        &r,
+        &recs,
+        &FishParams { clip_min_len: 150, no_hairpins: true, chunk_size: Some(1000), ..params(4) },
+    );
+    assert!(tsv(&p_no).is_empty(), "{:?}", tsv(&p_no));
+    assert!(fastq_entries(&p_no).is_empty());
+    let jno = json(&p_no);
+    assert_eq!(jno["reads"]["reads"], 0, "{jno}");
+    assert!(jno["reads"]["by_reason"].get("hairpin").is_none(), "{jno}");
+    assert!(jno["reads"]["by_reason"].get("clip").is_none(), "{jno}");
+    assert_eq!(jno["hairpin_detected"]["reads"], 1, "{jno}");
+    assert_eq!(jno["hairpin_detected"]["records"], 2, "{jno}");
+    assert_eq!(jno["params"]["hairpins"], false, "{jno}");
+    assert_eq!(strip_timing(&p_no), strip_timing(&p_no4));
+}
+
+#[test]
+fn fish_hairpin_extra_clip_and_inversion_split() {
+    let l = 10_000usize;
+    let r = random_seq(l, 811);
+    let mut seq_extra = random_seq(300, 812);
+    seq_extra.extend_from_slice(&r[2000..4500]);
+    seq_extra.extend_from_slice(&revcomp(&r[2000..4500]));
+
+    let mut seq_inv = r[1000..3000].to_vec();
+    seq_inv.extend_from_slice(&revcomp(&r[5000..7000]));
+
+    let recs = vec![
+        RawRec {
+            name: "hp_extra".to_string(),
+            pos: 2000,
+            cigar: vec![Cigar::SoftClip(300), Cigar::Match(2500), Cigar::SoftClip(2500)],
+            seq: seq_extra.clone(),
+            flags: 0,
+            sa: Some("chr,2001,-,2500M2800S,60,0;".to_string()),
+        },
+        RawRec {
+            name: "hp_extra".to_string(),
+            pos: 2000,
+            cigar: vec![Cigar::Match(2500), Cigar::SoftClip(2800)],
+            seq: revcomp(&seq_extra),
+            flags: 0x10 | 0x800,
+            sa: Some("chr,2001,+,300S2500M2500S,60,0;".to_string()),
+        },
+        RawRec {
+            name: "inv_split".to_string(),
+            pos: 1000,
+            cigar: vec![Cigar::Match(2000), Cigar::SoftClip(2000)],
+            seq: seq_inv.clone(),
+            flags: 0,
+            sa: Some("chr,5001,-,2000M2000S,60,0;".to_string()),
+        },
+        RawRec {
+            name: "inv_split".to_string(),
+            pos: 5000,
+            cigar: vec![Cigar::Match(2000), Cigar::SoftClip(2000)],
+            seq: revcomp(&seq_inv),
+            flags: 0x10 | 0x800,
+            sa: Some("chr,1001,+,2000M2000S,60,0;".to_string()),
+        },
+    ];
+
+    let p = run("hp_extra_inv", &r, &recs, &FishParams { clip_min_len: 150, ..params(1) });
+    let rows = tsv(&p);
+    assert_eq!(reasons_of(&rows, "hairpin"), vec!["hp_extra".to_string()], "{rows:?}");
+    assert_eq!(
+        reasons_of(&rows, "clip"),
+        vec!["hp_extra".to_string(), "inv_split".to_string()],
+        "{rows:?}"
+    );
+}
+
+#[test]
+fn fish_hairpin_clip_cap_interplay() {
+    let l = 10_000usize;
+    let r = random_seq(l, 821);
+    let mut recs = Vec::new();
+    for k in 0..4 {
+        let mut s = r[3500..4000].to_vec();
+        s.extend(std::iter::repeat_n(b'A', 200));
+        recs.push(RawRec {
+            name: format!("c{k}"),
+            pos: 3500,
+            cigar: vec![Cigar::Match(500), Cigar::SoftClip(200)],
+            seq: s,
+            flags: 0,
+            ..Default::default()
+        });
+    }
+    for k in 0..3 {
+        let mut s = r[2000..4000].to_vec();
+        s.extend_from_slice(&revcomp(&r[2000..4000]));
+        recs.push(RawRec {
+            name: format!("hp{k}"),
+            pos: 2000,
+            cigar: vec![Cigar::Match(2000), Cigar::SoftClip(2000)],
+            seq: s.clone(),
+            flags: 0,
+            sa: Some("chr,2001,-,2000M2000S,60,0;".to_string()),
+        });
+        recs.push(RawRec {
+            name: format!("hp{k}"),
+            pos: 2000,
+            cigar: vec![Cigar::Match(2000), Cigar::SoftClip(2000)],
+            seq: revcomp(&s),
+            flags: 0x10 | 0x800,
+            sa: Some("chr,2001,+,2000M2000S,60,0;".to_string()),
+        });
+    }
+
+    let p = run(
+        "hp_cap",
+        &r,
+        &recs,
+        &FishParams { clip_min_len: 150, clip_cap: 2, clip_bin: 2000, ..params(1) },
+    );
+    let rows = tsv(&p);
+    assert_eq!(reasons_of(&rows, "hairpin"), vec!["hp0", "hp1", "hp2"], "{rows:?}");
+    assert_eq!(reasons_of(&rows, "clip"), vec!["c0", "c1"], "{rows:?}");
+    let j = json(&p);
+    assert_eq!(j["cap"]["reads"], 2, "{j}");
+    assert_eq!(j["cap"]["bp"], 2 * 700, "{j}");
+    assert_eq!(j["reads"]["reads"], 5, "{j}");
+}
+
+#[test]
+fn fish_origin_crossing_skipped_json_counts_and_thread_identity() {
+    let l = 3_000usize;
+    let r = random_seq(l, 831);
+    let mut seq_exact = vec![b'A'; 120];
+    seq_exact.extend_from_slice(&r[0..500]);
+    let mut seq_near_r = r[2490..2990].to_vec();
+    seq_near_r.extend(std::iter::repeat_n(b'T', 120));
+    let mut seq_near_l = vec![b'G'; 120];
+    seq_near_l.extend_from_slice(&r[5..505]);
+    // A record spanning the entire contig with clips at BOTH ends (2 exact clips, 1 record).
+    let mut seq_both = vec![b'C'; 120];
+    seq_both.extend_from_slice(&r);
+    seq_both.extend(std::iter::repeat_n(b'C', 120));
+
+    let recs = vec![
+        RawRec {
+            name: "ex1".to_string(),
+            pos: 0,
+            cigar: vec![Cigar::SoftClip(120), Cigar::Match(500)],
+            seq: seq_exact,
+            flags: 0,
+            sa: None,
+        },
+        RawRec {
+            name: "wrap_pair".to_string(),
+            pos: 2490,
+            cigar: vec![Cigar::Match(500), Cigar::SoftClip(120)],
+            seq: seq_near_r,
+            flags: 0,
+            sa: Some("chr,6,+,120S500M,60,0;".to_string()),
+        },
+        RawRec {
+            name: "wrap_pair".to_string(),
+            pos: 5,
+            cigar: vec![Cigar::SoftClip(120), Cigar::Match(500)],
+            seq: seq_near_l,
+            flags: 0x800,
+            sa: Some("chr,2491,+,500M120S,60,0;".to_string()),
+        },
+        RawRec {
+            name: "both_ends".to_string(),
+            pos: 0,
+            cigar: vec![Cigar::SoftClip(120), Cigar::Match(l as u32), Cigar::SoftClip(120)],
+            seq: seq_both,
+            flags: 0,
+            sa: None,
+        },
+    ];
+
+    let p1 = run("ocs_t1", &r, &recs, &FishParams { chunk_size: Some(600), ..params(1) });
+    let p4 = run("ocs_t4", &r, &recs, &FishParams { chunk_size: Some(600), ..params(4) });
+    assert!(tsv(&p1).is_empty(), "{:?}", tsv(&p1));
+    let j1 = json(&p1);
+    assert_eq!(j1["origin_crossing_skipped"]["reads"], 3, "{j1}");
+    assert_eq!(j1["origin_crossing_skipped"]["records"], 4, "{j1}");
+    assert_eq!(j1["origin_crossing_skipped"]["clips"], 5, "{j1}");
+    assert_eq!(j1["origin_crossing_skipped"]["clips_exact"], 3, "{j1}");
+    assert_eq!(j1["origin_crossing_skipped"]["clips_near_end"], 2, "{j1}");
+    assert_eq!(
+        j1["origin_crossing_skipped"]["clips_exact"].as_u64().unwrap()
+            + j1["origin_crossing_skipped"]["clips_near_end"].as_u64().unwrap(),
+        j1["origin_crossing_skipped"]["clips"].as_u64().unwrap()
+    );
+    assert_eq!(strip_timing(&p1), strip_timing(&p4));
+
+    // --no-clips: both origin_crossing_skipped and hairpin_detected are all zero.
+    let p_nc = run("ocs_noclips", &r, &recs, &FishParams { no_clips: true, ..params(1) });
+    let jnc = json(&p_nc);
+    assert_eq!(jnc["origin_crossing_skipped"]["reads"], 0, "{jnc}");
+    assert_eq!(jnc["origin_crossing_skipped"]["records"], 0, "{jnc}");
+    assert_eq!(jnc["origin_crossing_skipped"]["clips"], 0, "{jnc}");
+    assert_eq!(jnc["origin_crossing_skipped"]["clips_exact"], 0, "{jnc}");
+    assert_eq!(jnc["origin_crossing_skipped"]["clips_near_end"], 0, "{jnc}");
+    assert_eq!(jnc["hairpin_detected"]["reads"], 0, "{jnc}");
+    assert_eq!(jnc["hairpin_detected"]["records"], 0, "{jnc}");
+}
+
+#[test]
+fn fish_hairpin_findings_scope_excludes_outside_and_counts_inside() {
+    let l = 10_000usize;
+    let r = random_seq(l, 841);
+    // Hairpin read with clip positions at 4499 (arm1 right) and 4499 (arm2 right).
+    let mut s = r[2000..4500].to_vec();
+    s.extend_from_slice(&revcomp(&r[2000..4500]));
+    let recs = vec![
+        RawRec {
+            name: "hp_scope".to_string(),
+            pos: 2000,
+            cigar: vec![Cigar::Match(2500), Cigar::SoftClip(2500)],
+            seq: s.clone(),
+            flags: 0,
+            sa: Some("chr,2001,-,2500M2500S,60,0;".to_string()),
+        },
+        RawRec {
+            name: "hp_scope".to_string(),
+            pos: 2000,
+            cigar: vec![Cigar::Match(2500), Cigar::SoftClip(2500)],
+            seq: revcomp(&s),
+            flags: 0x10 | 0x800,
+            sa: Some("chr,2001,+,2500M2500S,60,0;".to_string()),
+        },
+    ];
+    let dir = workdir("hp_scope_bed");
+    // Finding far from 4499: hairpin clip is outside -> no hairpin row, hairpin_detected = 0/0.
+    let f_out = dir.join("out.bed");
+    std::fs::write(
+        &f_out,
+        "chr\t100\t200\tfinding_1\t1\tred\tmisjoin\tevidence=clip;members=clip_hotspot:1;lowcov=0\n",
+    )
+    .unwrap();
+    let p_out = run(
+        "hp_scope_outside",
+        &r,
+        &recs,
+        &FishParams { clip_min_len: 150, findings: Some(f_out), finding_pad: 0, ..params(1) },
+    );
+    assert!(tsv(&p_out).is_empty(), "{:?}", tsv(&p_out));
+    let j_out = json(&p_out);
+    assert_eq!(j_out["hairpin_detected"]["reads"], 0, "{j_out}");
+    assert_eq!(j_out["hairpin_detected"]["records"], 0, "{j_out}");
+
+    // Finding covering 4499 -> hairpin row emitted & attributed to finding_7, hairpin_detected = 1/2.
+    let f_in = dir.join("in.bed");
+    std::fs::write(
+        &f_in,
+        "chr\t4450\t4550\tfinding_7\t1\tred\tmisjoin\tevidence=clip;members=clip_hotspot:1;lowcov=0\n",
+    )
+    .unwrap();
+    let p_in = run(
+        "hp_scope_inside",
+        &r,
+        &recs,
+        &FishParams { clip_min_len: 150, findings: Some(f_in), finding_pad: 0, ..params(1) },
+    );
+    let rows = tsv(&p_in);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!((rows[0][2].as_str(), rows[0][3].as_str()), ("hairpin", "finding_7"), "{rows:?}");
+    let j_in = json(&p_in);
+    assert_eq!(j_in["hairpin_detected"]["reads"], 1, "{j_in}");
+    assert_eq!(j_in["hairpin_detected"]["records"], 2, "{j_in}");
+}
+
+#[test]
+fn fish_hairpin_supplementary_pair_and_both_clips_hairpin() {
+    let l = 12_000usize;
+    let r = random_seq(l, 851);
+
+    // 1. S/S pair (neither primary): read L=6000.
+    //    Primary (+): [0, 1500) at 8000..9500 with 4500S trail — wait, make primary have
+    //    SA pointing only or clean unclipped? Even simpler: primary is [0, 2000) at 8000..10000
+    //    with 4000S trail (which is clip against 8000..10000 if not hairpin, or let's make
+    //    S/S on a 3-part read where primary is on one side with NO partner overlapping it,
+    //    WAIT: to test S/S purely without primary clip, let primary have lead/trail < clip_min_len?
+    //    No: primary has clip < 150 only if it covers almost the whole read! Instead, set
+    //    primary's clip to be covered by S1 (so primary is NOT hairpin? No, we want NEITHER
+    //    record in the hairpin pair to be primary!).
+    //    To have an S/S pair with NO clip on primary: e.g. primary aligns [2000, 4000) and has
+    //    no clips? No, a read has one length L. If primary aligns 100 bp, it has clips!
+    //    Unless the two supplementaries have a hairpin pair between themselves AND primary has
+    //    only a clip < 150? Impossible if S1+S2 each >= 1200!
+    //    Wait: primary can align at 8000..9500 (+, [0, 1500), trail=4500) while S1 (-) is at
+    //    [1500, 3750) (r1000..3250) and S2 (+) is at [3750, 6000) (r1000..3250)!
+    //    Look at S1 and S2: S1 and S2 form an S/S hairpin pair at r1000..3250!
+    //    Wait: primary (+) is at [0, 1500) (r8000..9500) with trail=4500; S1 is [1500, 3750)
+    //    which does NOT overlap r8000..9500 -> so primary stays `clip` (different contig/locus),
+    //    and ONLY S1 & S2 (both supplementary 0x800) form the `hairpin` pair!
+    let mut seq_ss = r[8000..9500].to_vec(); // 1500 bp [0, 1500)
+    seq_ss.extend_from_slice(&revcomp(&r[1000..3250])); // 2250 bp [1500, 3750)
+    seq_ss.extend_from_slice(&r[1000..3250]); // 2250 bp [3750, 6000)
+    assert_eq!(seq_ss.len(), 6000);
+
+    // 2. Record whose BOTH clips are hairpins (arm before and arm after):
+    //    L=6000: arm1 (-, [0, 2000), r2000..4000), arm2 (+, [2000, 4000), r2000..4000),
+    //    arm3 (-, [4000, 6000), r2000..4000).
+    //    Look at arm2 (primary +): lead=2000 (partner arm1 before), trail=2000 (partner arm3 after)!
+    //    And arm1 / arm3 have SA pointing to arm2, so ALL clips of the read convert to hairpin -> NO clip row!
+    let mut seq_both = revcomp(&r[2000..4000]);
+    seq_both.extend_from_slice(&r[2000..4000]);
+    seq_both.extend_from_slice(&revcomp(&r[2000..4000]));
+    assert_eq!(seq_both.len(), 6000);
+
+    let recs = vec![
+        // S/S hairpin read: primary at 8000..9500 (no overlap with 1000..3250), S1 & S2 form S/S hairpin
+        RawRec {
+            name: "ss_hp".to_string(),
+            pos: 8000,
+            cigar: vec![Cigar::Match(1500), Cigar::SoftClip(4500)],
+            seq: seq_ss.clone(),
+            flags: 0,
+            sa: Some("chr,1001,-,2250S2250M1500S,60,0;chr,1001,+,3750S2250M,60,0;".to_string()),
+        },
+        RawRec {
+            name: "ss_hp".to_string(),
+            pos: 1000,
+            cigar: vec![Cigar::SoftClip(2250), Cigar::Match(2250), Cigar::SoftClip(1500)],
+            seq: revcomp(&seq_ss),
+            flags: 0x10 | 0x800,
+            sa: Some("chr,8001,+,1500M4500S,60,0;chr,1001,+,3750S2250M,60,0;".to_string()),
+        },
+        RawRec {
+            name: "ss_hp".to_string(),
+            pos: 1000,
+            cigar: vec![Cigar::SoftClip(3750), Cigar::Match(2250)],
+            seq: seq_ss,
+            flags: 0x800,
+            sa: Some("chr,8001,+,1500M4500S,60,0;chr,1001,-,2250S2250M1500S,60,0;".to_string()),
+        },
+        // Both-clips-hairpin record: primary has arm before AND arm after in SA,
+        // so both its left and right clips convert to hairpin (zero clip rows).
+        RawRec {
+            name: "both_hp".to_string(),
+            pos: 2000,
+            cigar: vec![Cigar::SoftClip(2000), Cigar::Match(2000), Cigar::SoftClip(2000)],
+            seq: seq_both,
+            flags: 0,
+            sa: Some("chr,2001,-,4000S2000M,60,0;chr,2001,-,2000M4000S,60,0;".to_string()),
+        },
+    ];
+
+    let p = run("ss_and_both", &r, &recs, &FishParams { clip_min_len: 150, ..params(1) });
+    let rows = tsv(&p);
+    let ss_hp = rows.iter().find(|x| x[0] == "ss_hp" && x[2] == "hairpin").expect("ss_hp hairpin");
+    assert_eq!(ss_hp[7], "supplementary", "{ss_hp:?}");
+    assert_eq!(
+        ss_hp[8],
+        "arm1=q1500-3750,r1000-3250,-;arm2=q3750-6000,r1000-3250,+",
+        "{ss_hp:?}"
+    );
+    assert_eq!(reasons_of(&rows, "hairpin"), vec!["both_hp", "ss_hp"], "{rows:?}");
+    // both_hp has ZERO clip rows (both clips on primary and the clips on S1/S2 converted to hairpin).
+    assert_eq!(reasons_of(&rows, "clip"), vec!["ss_hp"], "{rows:?}");
 }

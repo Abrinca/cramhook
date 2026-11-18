@@ -14,11 +14,11 @@
 //! indel" mean the same as in `qc`.
 //!
 //! A read is selected when any of its counted records qualifies for any enabled
-//! category: `unmapped`, `clip`, `large_ins` / `large_del`, `linked`
+//! category: `unmapped`, `clip`, `hairpin`, `large_ins` / `large_del`, `linked`
 //! (`--haplotypes`), `locus` (`--findings`) or `bait` (`--bait`). In the
-//! `findings` scope, `clip` and `large_*` only count when the event position
-//! lies in a finding of tier >= `--min-tier` ± `--finding-pad`; the `genome`
-//! scope counts them anywhere. `unmapped` is genome-wide in both scopes.
+//! `findings` scope, `clip`, `hairpin` and `large_*` only count when the event
+//! position lies in a finding of tier >= `--min-tier` ± `--finding-pad`; the
+//! `genome` scope counts them anywhere. `unmapped` is genome-wide in both scopes.
 //!
 //! `bait` (when `--bait` is given) is answered by the `lift` session: the input
 //! is lifted onto `P.bait_ref.fa` = assembly + bait contigs and every read with a
@@ -52,8 +52,8 @@ use rust_htslib::bam::record::Aux;
 use rust_htslib::bam::{self, Read};
 
 use crate::bamio::{
-    FIELDS_FISH_FULL, FIELDS_FISH_MIN, OP_D, OP_EQ, OP_H, OP_M, OP_N, OP_X, aux_int, op_parts,
-    open_indexed, terminal_clips,
+    FIELDS_FISH_FULL, FIELDS_FISH_MIN, OP_D, OP_EQ, OP_H, OP_I, OP_M, OP_N, OP_S, OP_X, aux_int,
+    op_parts, open_indexed, terminal_clips,
 };
 use crate::fasta::Fasta;
 use crate::lift::{LiftOptions, lift};
@@ -65,6 +65,8 @@ use crate::version::versioned;
 const R_UNMAPPED: &str = "unmapped";
 /// Reason name for a terminal clip.
 const R_CLIP: &str = "clip";
+/// Reason name for a hairpin (fold-back) clip paired with an opposite-strand SA arm.
+const R_HAIRPIN: &str = "hairpin";
 /// Reason name for a merged large insertion.
 const R_INS: &str = "large_ins";
 /// Reason name for a merged large deletion.
@@ -166,6 +168,8 @@ pub struct FishParams {
     pub finding_pad: u64,
     pub no_unmapped: bool,
     pub no_clips: bool,
+    /// Do not emit `hairpin` events (and do not fall back to `clip` for them).
+    pub no_hairpins: bool,
     pub no_indels: bool,
     pub no_linked: bool,
     /// Select any record overlapping a finding ± `locus_flank`.
@@ -173,6 +177,14 @@ pub struct FishParams {
     pub locus_flank: u64,
     /// Terminal clip length threshold.
     pub clip_min_len: u32,
+    /// Hairpin: minimum reference overlap as a fraction of the shorter arm's reference span.
+    pub hairpin_min_overlap: f64,
+    /// Hairpin: minimum absolute tolerance (bp) for query gap/overlap between the two arms.
+    pub hairpin_max_gap: u64,
+    /// Hairpin: fractional tolerance (× read length) for query gap/overlap between the two arms.
+    pub hairpin_max_gap_frac: f64,
+    /// Hairpin: minimum query length of each arm as a fraction of read length.
+    pub hairpin_min_arm_frac: f64,
     /// Minimum merged large-indel size.
     pub indel_min_len: u32,
     /// Merge same-type indels separated by at most this many ref bp.
@@ -205,11 +217,16 @@ impl Default for FishParams {
             finding_pad: 1000,
             no_unmapped: false,
             no_clips: false,
+            no_hairpins: false,
             no_indels: false,
             no_linked: false,
             locus: false,
             locus_flank: 5000,
             clip_min_len: 50,
+            hairpin_min_overlap: 0.5,
+            hairpin_max_gap: 200,
+            hairpin_max_gap_frac: 0.02,
+            hairpin_min_arm_frac: 0.2,
             indel_min_len: 50,
             indel_merge_gap: 50,
             indel_piece_min: 10,
@@ -234,8 +251,8 @@ pub struct FishReads {
     pub reads: u64,
     /// Summed length of the selected reads.
     pub bp: u64,
-    /// Per reason (`unmapped`, `clip`, `large_ins`, `large_del`, `linked`,
-    /// `locus`); a read can appear under more than one.
+    /// Per reason (`unmapped`, `clip`, `hairpin`, `large_ins`, `large_del`,
+    /// `linked`, `locus`, `bait`); a read can appear under more than one.
     pub by_reason: BTreeMap<String, ReasonCounts>,
 }
 
@@ -275,6 +292,7 @@ pub struct FishParamsOut {
     pub finding_pad: u64,
     pub unmapped: bool,
     pub clips: bool,
+    pub hairpins: bool,
     pub indels: bool,
     pub linked: bool,
     /// `bait` is on when `--bait` was given.
@@ -284,6 +302,10 @@ pub struct FishParamsOut {
     pub clip_min_len: u32,
     /// `--circ-end-tol` (bp; 0 = exact ends only).
     pub circ_end_tol: u64,
+    pub hairpin_min_overlap: f64,
+    pub hairpin_max_gap: u64,
+    pub hairpin_max_gap_frac: f64,
+    pub hairpin_min_arm_frac: f64,
     pub indel_min_len: u32,
     pub indel_merge_gap: u32,
     pub indel_piece_min: u32,
@@ -302,6 +324,31 @@ pub struct CapSummary {
     pub bp: u64,
 }
 
+/// Hairpin-converted clip events detected (counted regardless of `--no-hairpins`).
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct HairpinDetected {
+    /// Distinct reads with >= 1 hairpin-converted clip event.
+    pub reads: u64,
+    /// Counted alignment records with >= 1 hairpin-converted clip event.
+    pub records: u64,
+}
+
+/// Origin-crossing clips skipped on circular contigs (unselected; 0 with `--no-clips`).
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct OriginCrossingSkipped {
+    /// Distinct reads with >= 1 skipped origin-crossing clip.
+    pub reads: u64,
+    /// Counted alignment records with >= 1 skipped origin-crossing clip.
+    pub records: u64,
+    /// Skipped clip events (`clips_exact + clips_near_end`; a record skipped at
+    /// both ends counts 2 clips, 1 record).
+    pub clips: u64,
+    /// Skipped clips at an exact contig end (`pos == 0` or `end == contig_len`).
+    pub clips_exact: u64,
+    /// Skipped clips within `--circ-end-tol` with a matching opposite-end `SA` partner.
+    pub clips_near_end: u64,
+}
+
 /// Wall times.
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct FishTiming {
@@ -315,6 +362,10 @@ pub struct FishSummary {
     pub reads: FishReads,
     /// Reads dropped by `--clip-cap` (zeros when off); they are not in `reads`.
     pub cap: CapSummary,
+    /// Hairpin-converted clip events detected (independent of `--no-hairpins`).
+    pub hairpin_detected: HairpinDetected,
+    /// Origin-crossing clips skipped on circular contigs (not selected).
+    pub origin_crossing_skipped: OriginCrossingSkipped,
     pub records: InputCounts,
     pub params: FishParamsOut,
     /// The `bait` step, when `--bait` was given.
@@ -811,22 +862,82 @@ fn sa_ref_span(cigar: &str) -> Option<u64> {
     Some(span)
 }
 
-/// Is a terminal clip on a contig an origin crossing that should be skipped?
+/// `(lead_clip, trail_clip, ref_span, query_total)` of an `SA` CIGAR string,
+/// or `None` if invalid or empty.
+fn sa_cigar_stats(cigar: &str) -> Option<(u64, u64, u64, u64)> {
+    let cs = bam::record::CigarString::try_from(cigar).ok()?;
+    if cs.0.is_empty() {
+        return None;
+    }
+    let is_clip = |c: &bam::record::Cigar| {
+        matches!(c, bam::record::Cigar::SoftClip(_) | bam::record::Cigar::HardClip(_))
+    };
+    let op_len = |c: &bam::record::Cigar| -> u64 {
+        match *c {
+            bam::record::Cigar::Match(l)
+            | bam::record::Cigar::Ins(l)
+            | bam::record::Cigar::Del(l)
+            | bam::record::Cigar::RefSkip(l)
+            | bam::record::Cigar::SoftClip(l)
+            | bam::record::Cigar::HardClip(l)
+            | bam::record::Cigar::Equal(l)
+            | bam::record::Cigar::Diff(l) => l as u64,
+            bam::record::Cigar::Pad(_) => 0,
+        }
+    };
+    let lead: u64 = cs.0.iter().take_while(|c| is_clip(c)).map(op_len).sum();
+    let trail: u64 = cs.0.iter().rev().take_while(|c| is_clip(c)).map(op_len).sum();
+    let mut ref_span = 0u64;
+    let mut query_total = 0u64;
+    for &c in &cs.0 {
+        match c {
+            bam::record::Cigar::Match(l)
+            | bam::record::Cigar::Equal(l)
+            | bam::record::Cigar::Diff(l) => {
+                ref_span += l as u64;
+                query_total += l as u64;
+            }
+            bam::record::Cigar::Del(l) | bam::record::Cigar::RefSkip(l) => {
+                ref_span += l as u64;
+            }
+            bam::record::Cigar::Ins(l)
+            | bam::record::Cigar::SoftClip(l)
+            | bam::record::Cigar::HardClip(l) => {
+                query_total += l as u64;
+            }
+            bam::record::Cigar::Pad(_) => {}
+        }
+    }
+    Some((lead, trail, ref_span, query_total))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OriginClip {
+    None,
+    Exact,
+    NearEnd,
+}
+
+/// Classify whether a terminal clip on a contig is an origin crossing that
+/// should be skipped.
 ///
-/// On linear contigs, returns `false`. On circular contigs:
-/// - `left = true`: skipped when `pos == 0`, or `pos <= tol` and `SA` has a
-///   same-contig, same-strand entry whose reference end is `>= contig_len - tol`.
-/// - `left = false`: skipped when `end == contig_len`, or `end >= contig_len - tol`
-///   and `SA` has a same-contig, same-strand entry whose 0-based start (`pos - 1`)
-///   is `<= tol`.
+/// On linear contigs, returns `OriginClip::None`. On circular contigs:
+/// - `left = true`: returns `OriginClip::Exact` when `pos == 0`, or
+///   `OriginClip::NearEnd` when `pos <= tol` and `SA` has a same-contig,
+///   same-strand entry whose reference end is `>= contig_len - tol`.
+/// - `left = false`: returns `OriginClip::Exact` when `end == contig_len`, or
+///   `OriginClip::NearEnd` when `end >= contig_len - tol` and `SA` has a
+///   same-contig, same-strand entry whose 0-based start (`pos - 1`) is `<= tol`.
 ///
 /// `tol` is capped at `contig_len / 2`. When it is 0, only exact contig ends
-/// are skipped (and `SA` is not parsed). Invalid `SA` payloads are treated as
-/// having no partner (the clip counts). The partner is not checked to cover the
-/// clipped read bases: any same-contig, same-strand segment near the opposite
-/// end qualifies.
+/// are skipped (and `sa_entries` is not invoked). `sa_entries` is called lazily
+/// only for near-end candidates; invalid/absent `SA` payloads (`None`) are
+/// treated as having no partner (the clip counts). The partner is taken from the
+/// `SA` tag (not checked to be a counted alignment record) and is not checked
+/// to cover the clipped read bases: any same-contig, same-strand segment near
+/// the opposite end qualifies.
 #[allow(clippy::too_many_arguments)]
-fn is_circular_origin_clip(
+fn classify_circular_origin_clip<'a>(
     circular: bool,
     left: bool,
     pos: u64,
@@ -835,44 +946,181 @@ fn is_circular_origin_clip(
     contig_len: u64,
     strand: char,
     tol: u64,
-    sa_raw: Option<&str>,
-) -> bool {
+    sa_entries: impl FnOnce() -> Option<&'a [crate::translate::SaEntry]>,
+) -> OriginClip {
     if !circular {
-        return false;
+        return OriginClip::None;
     }
     // On a contig shorter than 2 * tol every position would be "near an end";
     // cap the tolerance at half the contig so the two ends stay distinct.
     let tol = tol.min(contig_len / 2);
     if left {
         if pos == 0 {
-            return true;
+            return OriginClip::Exact;
         }
         if tol == 0 || pos > tol {
-            return false;
+            return OriginClip::None;
         }
         let threshold = contig_len.saturating_sub(tol);
-        let Some(s) = sa_raw else { return false };
-        let Ok(entries) = crate::translate::parse_sa(s) else { return false };
-        entries.iter().any(|e| {
+        let Some(entries) = sa_entries() else { return OriginClip::None };
+        if entries.iter().any(|e| {
             e.rname == contig
                 && e.strand == strand
                 && sa_ref_span(&e.cigar)
                     .map(|span| e.pos.saturating_sub(1).saturating_add(span))
                     .is_some_and(|re| re >= threshold)
-        })
+        }) {
+            OriginClip::NearEnd
+        } else {
+            OriginClip::None
+        }
     } else {
         if end == contig_len {
-            return true;
+            return OriginClip::Exact;
         }
         if tol == 0 || end < contig_len.saturating_sub(tol) {
-            return false;
+            return OriginClip::None;
         }
-        let Some(s) = sa_raw else { return false };
-        let Ok(entries) = crate::translate::parse_sa(s) else { return false };
-        entries
+        let Some(entries) = sa_entries() else { return OriginClip::None };
+        if entries
             .iter()
             .any(|e| e.rname == contig && e.strand == strand && e.pos.saturating_sub(1) <= tol)
+        {
+            OriginClip::NearEnd
+        } else {
+            OriginClip::None
+        }
     }
+}
+
+/// Aligned query interval `[start, end)` in 0-based half-open original read orientation.
+fn orig_query_iv(strand: char, lead: u64, trail: u64, read_len: u64) -> Option<(u64, u64)> {
+    if lead.saturating_add(trail) >= read_len {
+        return None;
+    }
+    let (qs, qe) = match strand {
+        '+' => (lead, read_len - trail),
+        '-' => (trail, read_len - lead),
+        _ => return None,
+    };
+    (qs < qe).then_some((qs, qe))
+}
+
+/// Check if a qualifying terminal clip on record `R` has an `SA` hairpin partner `E`.
+///
+/// Returns the formatted `detail` string (`arm1=q<s>-<e>,r<s>-<e>,<strand>;arm2=...`,
+/// `arm1` earlier in read, 0-based half-open original-orientation query and reference
+/// coordinates) if a matching partner covers the clipped region except a residual
+/// `< clip_min_len`. Any pair of counted records qualifies (primary/supplementary or
+/// supplementary/supplementary); the partner is taken from the `SA` tag (not checked
+/// to be a counted alignment record). Invalid `SA` payloads are treated as no partner.
+#[allow(clippy::too_many_arguments)]
+fn find_hairpin_partner(
+    r_contig: &str,
+    r_rstart: u64,
+    r_rend: u64,
+    r_strand: char,
+    r_lead: u64,
+    r_trail: u64,
+    read_len: u64,
+    clip_is_left: bool,
+    params: &FishParams,
+    sa_entries: Option<&[crate::translate::SaEntry]>,
+) -> Option<String> {
+    let entries = sa_entries?;
+    let (r_qs, r_qe) = orig_query_iv(r_strand, r_lead, r_trail, read_len)?;
+    let r_qlen = r_qe - r_qs;
+    let r_rspan = r_rend.saturating_sub(r_rstart);
+    let clip_min = params.clip_min_len as u64;
+    if r_rspan == 0
+        || r_qlen < clip_min
+        || (r_qlen as f64) < params.hairpin_min_arm_frac * (read_len as f64)
+    {
+        return None;
+    }
+
+    // Read-3' clip (`[r_qe, L)`) wants partner after R in read order;
+    // Read-5' clip (`[0, r_qs)`) wants partner before R in read order.
+    let want_e_after = clip_is_left ^ (r_strand == '+');
+    let clip_len = if want_e_after { read_len - r_qe } else { r_qs };
+    if clip_len < clip_min {
+        return None;
+    }
+
+    let gap_limit = (params.hairpin_max_gap as f64).max(params.hairpin_max_gap_frac * (read_len as f64));
+    let min_arm_len = params.hairpin_min_arm_frac * (read_len as f64);
+
+    #[derive(PartialEq, Eq, PartialOrd, Ord)]
+    struct PartnerScore(u64, std::cmp::Reverse<u64>, std::cmp::Reverse<u64>);
+
+    // Deterministic tie-break if multiple SA entries qualify: largest ref_overlap,
+    // smallest query gap, smallest residual, then SA order.
+    let mut best: Option<(PartnerScore, String)> = None;
+
+    for e in entries {
+        if e.rname != r_contig || e.strand == r_strand {
+            continue;
+        }
+        let Some((e_lead, e_trail, e_rspan, e_qtotal)) = sa_cigar_stats(&e.cigar) else {
+            continue;
+        };
+        if e_rspan == 0 || e_qtotal != read_len {
+            continue;
+        }
+        let Some((e_qs, e_qe)) = orig_query_iv(e.strand, e_lead, e_trail, read_len) else {
+            continue;
+        };
+        let e_qlen = e_qe - e_qs;
+        if e_qlen < clip_min || (e_qlen as f64) < min_arm_len {
+            continue;
+        }
+
+        let e_rstart = e.pos.saturating_sub(1);
+        let e_rend = e_rstart.saturating_add(e_rspan);
+        let ref_overlap = r_rend.min(e_rend).saturating_sub(r_rstart.max(e_rstart));
+        let shorter_rspan = r_rspan.min(e_rspan);
+        if (ref_overlap as f64) < params.hairpin_min_overlap * (shorter_rspan as f64) {
+            continue;
+        }
+
+        let q_gap = r_qs.max(e_qs).abs_diff(r_qe.min(e_qe));
+        if (q_gap as f64) > gap_limit {
+            continue;
+        }
+
+        if want_e_after {
+            if !(e_qs > r_qs && e_qe > r_qe) {
+                continue;
+            }
+        } else if !(e_qs < r_qs && e_qe < r_qe) {
+            continue;
+        }
+
+        let covered = if want_e_after {
+            read_len.min(e_qe).saturating_sub(r_qe.max(e_qs))
+        } else {
+            r_qs.min(e_qe).saturating_sub(e_qs)
+        };
+        let residual = clip_len.saturating_sub(covered);
+        if residual >= clip_min {
+            continue;
+        }
+
+        let ((q1s, q1e, r1s, r1e, s1), (q2s, q2e, r2s, r2e, s2)) = if want_e_after {
+            ((r_qs, r_qe, r_rstart, r_rend, r_strand), (e_qs, e_qe, e_rstart, e_rend, e.strand))
+        } else {
+            ((e_qs, e_qe, e_rstart, e_rend, e.strand), (r_qs, r_qe, r_rstart, r_rend, r_strand))
+        };
+        let score = PartnerScore(ref_overlap, std::cmp::Reverse(q_gap), std::cmp::Reverse(residual));
+        if best.as_ref().is_none_or(|(b, _)| score > *b) {
+            let detail = format!(
+                "arm1=q{q1s}-{q1e},r{r1s}-{r1e},{s1};arm2=q{q2s}-{q2e},r{r2s}-{r2e},{s2}"
+            );
+            best = Some((score, detail));
+        }
+    }
+
+    best.map(|(_, d)| d)
 }
 
 /// The record's `SA` targets as `contig:pos:strand` joined by `,`, `.` if none.
@@ -899,6 +1147,29 @@ fn sa_string(rec: &bam::Record) -> String {
     }
 }
 
+#[derive(Default)]
+struct WorkerStats {
+    counts: InputCounts,
+    hairpin_records: u64,
+    hairpin_reads: HashSet<String>,
+    origin_skipped_records: u64,
+    origin_skipped_reads: HashSet<String>,
+    origin_skipped_exact: u64,
+    origin_skipped_near_end: u64,
+}
+
+impl WorkerStats {
+    fn merge(&mut self, other: WorkerStats) {
+        self.counts.add(&other.counts);
+        self.hairpin_records += other.hairpin_records;
+        self.hairpin_reads.extend(other.hairpin_reads);
+        self.origin_skipped_records += other.origin_skipped_records;
+        self.origin_skipped_reads.extend(other.origin_skipped_reads);
+        self.origin_skipped_exact += other.origin_skipped_exact;
+        self.origin_skipped_near_end += other.origin_skipped_near_end;
+    }
+}
+
 /// Classify and test one record. `tid` is `usize::MAX` for unplaced unmapped
 /// records (the unmapped branch returns before using it).
 ///
@@ -913,24 +1184,24 @@ fn process_record(
     tid: usize,
     ctx: &Ctx,
     aggs: &mut HashMap<String, ReadAgg>,
-    counts: &mut InputCounts,
+    stats: &mut WorkerStats,
     uncounted_primary: &mut HashSet<String>,
 ) -> Result<()> {
     let flags = rec.flags();
-    counts.total += 1;
+    stats.counts.total += 1;
     if flags & 0x100 != 0 {
-        counts.secondary += 1;
+        stats.counts.secondary += 1;
         return Ok(());
     }
     if flags & 0x200 != 0 {
-        counts.qcfail += 1;
+        stats.counts.qcfail += 1;
         if flags & 0x800 == 0 {
             uncounted_primary.insert(String::from_utf8_lossy(rec.qname()).into_owned());
         }
         return Ok(());
     }
     if flags & 0x400 != 0 {
-        counts.duplicate += 1;
+        stats.counts.duplicate += 1;
         if flags & 0x800 == 0 {
             uncounted_primary.insert(String::from_utf8_lossy(rec.qname()).into_owned());
         }
@@ -946,8 +1217,8 @@ fn process_record(
     let name = String::from_utf8_lossy(rec.qname()).into_owned();
 
     if flags & 0x4 != 0 {
-        counts.unmapped += 1;
-        counts.unmapped_bp += rec.seq_len() as u64;
+        stats.counts.unmapped += 1;
+        stats.counts.unmapped_bp += rec.seq_len() as u64;
         if !ctx.params.no_unmapped {
             let a = agg_of(aggs, &name, rec);
             let len = a.read_len;
@@ -969,10 +1240,10 @@ fn process_record(
     }
 
     if primary {
-        counts.primary += 1;
-        counts.mapped_bp += rec.seq_len() as u64;
+        stats.counts.primary += 1;
+        stats.counts.mapped_bp += rec.seq_len() as u64;
     } else {
-        counts.supplementary += 1;
+        stats.counts.supplementary += 1;
     }
 
     let rpos = rec.pos();
@@ -982,10 +1253,14 @@ fn process_record(
     let pos = rpos as usize;
     let cig = rec.raw_cigar();
     let mut span = 0usize;
+    let mut cigar_qlen = 0u64;
     for &c in cig {
         let (op, l) = op_parts(c);
         if matches!(op, OP_M | OP_D | OP_N | OP_EQ | OP_X) {
             span += l;
+        }
+        if matches!(op, OP_M | OP_I | OP_S | OP_H | OP_EQ | OP_X) {
+            cigar_qlen += l as u64;
         }
     }
     if span == 0 {
@@ -1023,79 +1298,109 @@ fn process_record(
         }
     };
 
-    // clip: a terminal soft clip >= clip_min_len; on a circular contig a clip
-    // at an exact contig end, or within `circ_end_tol` bp with a same-contig,
-    // same-strand SA partner within `circ_end_tol` bp of the opposite end, is
-    // an origin crossing (skipped). On a linear contig every clip counts.
+    // clip (and hairpin): a terminal soft clip >= clip_min_len; on a circular
+    // contig a clip at an exact contig end, or within `circ_end_tol` bp with a
+    // same-contig, same-strand SA partner within `circ_end_tol` bp of the
+    // opposite end, is an origin crossing (skipped). Otherwise, if an SA partner
+    // satisfies the hairpin rule and covers the clip (residual < clip_min_len),
+    // the clip becomes a `hairpin` event (suppressed by `--no-hairpins`).
     if !ctx.params.no_clips {
         let tol = ctx.params.circ_end_tol;
         let check_left = lclip && lead >= ctx.params.clip_min_len;
         let check_right = rclip && trail >= ctx.params.clip_min_len;
-        let need_sa = circular
-            && tol > 0
-            && ((check_left && pos > 0 && (pos as u64) <= tol)
-                || (check_right
-                    && end != contig_len
-                    && (end as u64) >= (contig_len as u64).saturating_sub(tol)));
-        let sa_raw = if need_sa {
-            match rec.aux(b"SA") {
-                Ok(Aux::String(s)) => Some(s),
-                _ => None,
+        if check_left || check_right {
+            let sa_cell = std::cell::OnceCell::new();
+            let get_sa = || -> Option<&[crate::translate::SaEntry]> {
+                sa_cell
+                    .get_or_init(|| match rec.aux(b"SA") {
+                        Ok(Aux::String(s)) => crate::translate::parse_sa(s).ok(),
+                        _ => None,
+                    })
+                    .as_deref()
+            };
+            let mut skipped_origin = false;
+            let mut had_hairpin = false;
+
+            for (is_left, enabled, clip_len, ev_pos, side_str) in [
+                (true, check_left, lead, pos as u64, "left"),
+                (false, check_right, trail, (end - 1) as u64, "right"),
+            ] {
+                if !enabled {
+                    continue;
+                }
+                match classify_circular_origin_clip(
+                    circular,
+                    is_left,
+                    pos as u64,
+                    end as u64,
+                    &contig,
+                    contig_len as u64,
+                    strand,
+                    tol,
+                    get_sa,
+                ) {
+                    OriginClip::Exact => {
+                        skipped_origin = true;
+                        stats.origin_skipped_exact += 1;
+                    }
+                    OriginClip::NearEnd => {
+                        skipped_origin = true;
+                        stats.origin_skipped_near_end += 1;
+                    }
+                    OriginClip::None => {
+                        if let Some(ids) = ctx.event_attr(tid, ev_pos) {
+                            if let Some(detail) = find_hairpin_partner(
+                                &contig,
+                                pos as u64,
+                                end as u64,
+                                strand,
+                                lead as u64,
+                                trail as u64,
+                                cigar_qlen,
+                                is_left,
+                                ctx.params,
+                                get_sa(),
+                            ) {
+                                had_hairpin = true;
+                                if !ctx.params.no_hairpins {
+                                    let base = Event {
+                                        len: clip_len as u64,
+                                        pos: ev_pos,
+                                        primary,
+                                        strand,
+                                        detail,
+                                        finding: None,
+                                        contig: contig.clone(),
+                                        sa: sa.clone(),
+                                    };
+                                    offerings(R_HAIRPIN, base, Some(ids), &mut evs);
+                                }
+                            } else {
+                                let base = Event {
+                                    len: clip_len as u64,
+                                    pos: ev_pos,
+                                    primary,
+                                    strand,
+                                    detail: format!("side={side_str};len={clip_len}"),
+                                    finding: None,
+                                    contig: contig.clone(),
+                                    sa: sa.clone(),
+                                };
+                                offerings(R_CLIP, base, Some(ids), &mut evs);
+                            }
+                        }
+                    }
+                }
             }
-        } else {
-            None
-        };
-        if check_left
-            && !is_circular_origin_clip(
-                circular,
-                true,
-                pos as u64,
-                end as u64,
-                &contig,
-                contig_len as u64,
-                strand,
-                tol,
-                sa_raw,
-            )
-        {
-            let p = pos as u64;
-            let base = Event {
-                len: lead as u64,
-                pos: p,
-                primary,
-                strand,
-                detail: format!("side=left;len={lead}"),
-                finding: None,
-                contig: contig.clone(),
-                sa: sa.clone(),
-            };
-            offerings(R_CLIP, base, ctx.event_attr(tid, p), &mut evs);
-        }
-        if check_right
-            && !is_circular_origin_clip(
-                circular,
-                false,
-                pos as u64,
-                end as u64,
-                &contig,
-                contig_len as u64,
-                strand,
-                tol,
-                sa_raw,
-            )
-        {
-            let p = (end - 1) as u64;
-            let base = Event {
-                len: trail as u64,
-                pos: p,
-                primary,
-                strand,
-                detail: format!("side=right;len={trail}"),
-                finding: None,
-                contig: contig.clone(),
-                sa: sa.clone(),
-            };
-            offerings(R_CLIP, base, ctx.event_attr(tid, p), &mut evs);
+
+            if skipped_origin {
+                stats.origin_skipped_records += 1;
+                stats.origin_skipped_reads.insert(name.clone());
+            }
+            if had_hairpin {
+                stats.hairpin_records += 1;
+                stats.hairpin_reads.insert(name.clone());
+            }
         }
     }
 
@@ -1782,7 +2087,7 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
     let records_total = progress.record_total(input);
     progress.start_records("pass", records_total);
     let done_bp = crate::progress::ChunkFrac::new(progress, total);
-    let workers: Vec<Result<(HashMap<String, ReadAgg>, InputCounts, HashSet<String>)>> =
+    let workers: Vec<Result<(HashMap<String, ReadAgg>, WorkerStats, HashSet<String>)>> =
         std::thread::scope(|sc| {
             let handles: Vec<_> = (0..nthreads)
                 .map(|_| {
@@ -1791,11 +2096,11 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
                     let next = &next;
                     let names = &contig_name;
                     let done_bp = &done_bp;
-                    sc.spawn(move || -> Result<(HashMap<String, ReadAgg>, InputCounts, HashSet<String>)> {
+                    sc.spawn(move || -> Result<(HashMap<String, ReadAgg>, WorkerStats, HashSet<String>)> {
                         let mut reader = open_indexed(input, ref_path, FIELDS_FISH_FULL)?;
                         let mut rec = bam::Record::new();
                         let mut aggs: HashMap<String, ReadAgg> = HashMap::new();
-                        let mut counts = InputCounts::default();
+                        let mut stats = WorkerStats::default();
                         let mut uncounted: HashSet<String> = HashSet::new();
                         loop {
                             let k = next.fetch_add(1, Ordering::Relaxed);
@@ -1820,7 +2125,7 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
                                             tid,
                                             ctx,
                                             &mut aggs,
-                                            &mut counts,
+                                            &mut stats,
                                             &mut uncounted,
                                         )?;
                                     }
@@ -1844,7 +2149,7 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
                                             usize::MAX,
                                             ctx,
                                             &mut aggs,
-                                            &mut counts,
+                                            &mut stats,
                                             &mut uncounted,
                                         )?;
                                     }
@@ -1852,7 +2157,7 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
                                 }
                             }
                         }
-                        Ok((aggs, counts, uncounted))
+                        Ok((aggs, stats, uncounted))
                     })
                 })
                 .collect();
@@ -1860,12 +2165,12 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
         });
 
     // Merge workers deterministically (sum counters, fold per-read events).
-    let mut counts = InputCounts::default();
+    let mut stats = WorkerStats::default();
     let mut global: HashMap<String, ReadAgg> = HashMap::new();
     let mut uncounted_primary: HashSet<String> = HashSet::new();
     for w in workers {
-        let (aggs, c, uncounted) = w?;
-        counts.add(&c);
+        let (aggs, ws, uncounted) = w?;
+        stats.merge(ws);
         uncounted_primary.extend(uncounted);
         for (name, agg) in aggs {
             let entry = global.entry(name).or_default();
@@ -1877,6 +2182,18 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
             }
         }
     }
+    let counts = stats.counts;
+    let hairpin_detected = HairpinDetected {
+        reads: stats.hairpin_reads.len() as u64,
+        records: stats.hairpin_records,
+    };
+    let origin_crossing_skipped = OriginCrossingSkipped {
+        reads: stats.origin_skipped_reads.len() as u64,
+        records: stats.origin_skipped_records,
+        clips: stats.origin_skipped_exact + stats.origin_skipped_near_end,
+        clips_exact: stats.origin_skipped_exact,
+        clips_near_end: stats.origin_skipped_near_end,
+    };
 
     // Bait (optional): lift the input onto assembly + bait and select every read
     // that lands on a bait contig. Independent of the categories above, which
@@ -2068,6 +2385,8 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
     let summary = FishSummary {
         reads,
         cap: CapSummary { reads: cap_reads, bp: cap_bp },
+        hairpin_detected,
+        origin_crossing_skipped,
         records: counts,
         params: FishParamsOut {
             scope: match scope {
@@ -2078,6 +2397,7 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
             finding_pad: params.finding_pad,
             unmapped: !params.no_unmapped,
             clips: !params.no_clips,
+            hairpins: !params.no_hairpins,
             indels: !params.no_indels,
             linked: linked_on,
             bait: !params.bait.is_empty(),
@@ -2085,6 +2405,10 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
             locus_flank: params.locus_flank,
             clip_min_len: params.clip_min_len,
             circ_end_tol: params.circ_end_tol,
+            hairpin_min_overlap: params.hairpin_min_overlap,
+            hairpin_max_gap: params.hairpin_max_gap,
+            hairpin_max_gap_frac: params.hairpin_max_gap_frac,
+            hairpin_min_arm_frac: params.hairpin_min_arm_frac,
             indel_min_len: params.indel_min_len,
             indel_merge_gap: params.indel_merge_gap,
             indel_piece_min: params.indel_piece_min,
@@ -2226,7 +2550,8 @@ mod cap_unit {
     #[test]
     fn non_clip_reasons_never_dropped() {
         let mut v = bin_of(5, "c", 10, "c");
-        for (r, other) in [R_UNMAPPED, R_INS, R_DEL, R_LINKED, R_LOCUS, R_BAIT].iter().enumerate() {
+        let others = [R_UNMAPPED, R_HAIRPIN, R_INS, R_DEL, R_LINKED, R_LOCUS, R_BAIT];
+        for (r, other) in others.iter().enumerate() {
             v.push(read(
                 &format!("x{r}"),
                 &[(R_CLIP, None, ev(100, 10, "c")), (other, None, ev(100, 10, "c"))],
@@ -2236,10 +2561,10 @@ mod cap_unit {
         let (n, _) = apply_clip_cap(&mut v, 1, 2000);
         assert_eq!(n, 4);
         let kept = names(&v);
-        for r in 0..6 {
+        for r in 0..others.len() {
             assert!(kept.contains(&format!("x{r}")));
         }
-        assert_eq!(kept.len(), 6 + 1);
+        assert_eq!(kept.len(), others.len() + 1);
     }
 
     #[test]
@@ -2353,272 +2678,492 @@ mod circ_clip_unit {
     const LEN: u64 = 2_000;
     const TOL: u64 = 100;
 
+    #[allow(clippy::too_many_arguments)]
+    fn circ(
+        circular: bool,
+        left: bool,
+        pos: u64,
+        end: u64,
+        contig: &str,
+        contig_len: u64,
+        strand: char,
+        tol: u64,
+        sa_raw: Option<&str>,
+    ) -> OriginClip {
+        let cell = std::cell::OnceCell::new();
+        classify_circular_origin_clip(circular, left, pos, end, contig, contig_len, strand, tol, || {
+            cell.get_or_init(|| sa_raw.and_then(|s| crate::translate::parse_sa(s).ok()))
+                .as_deref()
+        })
+    }
+
     #[test]
     fn exact_ends_skipped_without_sa_even_at_tol_zero() {
-        assert!(is_circular_origin_clip(true, true, 0, 500, "chr", LEN, '+', TOL, None));
-        assert!(is_circular_origin_clip(true, true, 0, 500, "chr", LEN, '+', 0, None));
-        assert!(is_circular_origin_clip(true, false, 1500, LEN, "chr", LEN, '-', TOL, None));
-        assert!(is_circular_origin_clip(true, false, 1500, LEN, "chr", LEN, '-', 0, None));
+        assert_eq!(circ(true, true, 0, 500, "chr", LEN, '+', TOL, None), OriginClip::Exact);
+        assert_eq!(circ(true, true, 0, 500, "chr", LEN, '+', 0, None), OriginClip::Exact);
+        assert_eq!(circ(true, false, 1500, LEN, "chr", LEN, '-', TOL, None), OriginClip::Exact);
+        assert_eq!(circ(true, false, 1500, LEN, "chr", LEN, '-', 0, None), OriginClip::Exact);
     }
 
     #[test]
     fn linear_contig_never_skips() {
-        assert!(!is_circular_origin_clip(false, true, 0, 500, "chr", LEN, '+', TOL, None));
-        assert!(!is_circular_origin_clip(
-            false,
-            false,
-            1500,
-            LEN,
-            "chr",
-            LEN,
-            '+',
-            TOL,
-            Some("chr,3,+,120S400M,60,0;")
-        ));
+        assert_eq!(circ(false, true, 0, 500, "chr", LEN, '+', TOL, None), OriginClip::None);
+        assert_eq!(
+            circ(false, false, 1500, LEN, "chr", LEN, '+', TOL, Some("chr,3,+,120S400M,60,0;")),
+            OriginClip::None
+        );
     }
 
     #[test]
     fn near_end_with_matching_partner_skipped() {
         // Right clip stopping at 1990 with SA starting at 1-based 3 (0-based 2 <= 100).
-        assert!(is_circular_origin_clip(
-            true,
-            false,
-            1500,
-            1990,
-            "chr",
-            LEN,
-            '+',
-            TOL,
-            Some("chr,3,+,120S400M,60,0;")
-        ));
+        assert_eq!(
+            circ(true, false, 1500, 1990, "chr", LEN, '+', TOL, Some("chr,3,+,120S400M,60,0;")),
+            OriginClip::NearEnd
+        );
         // Inclusive boundaries: end == LEN - TOL (1900) and SA start == TOL (1-based 101).
-        assert!(is_circular_origin_clip(
-            true,
-            false,
-            1500,
-            1900,
-            "chr",
-            LEN,
-            '-',
-            TOL,
-            Some("chr,101,-,120S400M,60,0;")
-        ));
+        assert_eq!(
+            circ(true, false, 1500, 1900, "chr", LEN, '-', TOL, Some("chr,101,-,120S400M,60,0;")),
+            OriginClip::NearEnd
+        );
         // Left clip at pos 5 with SA ending at 1995 (>= 1900), using D/=/X ops.
         // 1-based 1801 -> 0-based 1800 + (100= + 50D + 45X) = 1995.
-        assert!(is_circular_origin_clip(
-            true,
-            true,
-            5,
-            505,
-            "chr",
-            LEN,
-            '+',
-            TOL,
-            Some("chr,1801,+,100=50D45X120S,60,0;")
-        ));
+        assert_eq!(
+            circ(true, true, 5, 505, "chr", LEN, '+', TOL, Some("chr,1801,+,100=50D45X120S,60,0;")),
+            OriginClip::NearEnd
+        );
         // Multiple SA entries: one non-matching, second matching.
-        assert!(is_circular_origin_clip(
-            true,
-            true,
-            100,
-            600,
-            "chr",
-            LEN,
-            '-',
-            TOL,
-            Some("other,1,-,100M,60,0;chr,1701,-,200M,60,0;")
-        ));
+        assert_eq!(
+            circ(
+                true,
+                true,
+                100,
+                600,
+                "chr",
+                LEN,
+                '-',
+                TOL,
+                Some("other,1,-,100M,60,0;chr,1701,-,200M,60,0;")
+            ),
+            OriginClip::NearEnd
+        );
     }
 
     #[test]
     fn near_end_without_or_invalid_sa_not_skipped() {
-        assert!(!is_circular_origin_clip(true, false, 1500, 1990, "chr", LEN, '+', TOL, None));
-        assert!(!is_circular_origin_clip(true, true, 5, 505, "chr", LEN, '+', TOL, None));
-        assert!(!is_circular_origin_clip(true, false, 1500, 1990, "chr", LEN, '+', TOL, Some("bad")));
-        assert!(!is_circular_origin_clip(true, true, 5, 505, "chr", LEN, '+', TOL, Some("")));
+        assert_eq!(circ(true, false, 1500, 1990, "chr", LEN, '+', TOL, None), OriginClip::None);
+        assert_eq!(circ(true, true, 5, 505, "chr", LEN, '+', TOL, None), OriginClip::None);
+        assert_eq!(circ(true, false, 1500, 1990, "chr", LEN, '+', TOL, Some("bad")), OriginClip::None);
+        assert_eq!(circ(true, true, 5, 505, "chr", LEN, '+', TOL, Some("")), OriginClip::None);
     }
 
     #[test]
     fn partner_other_contig_not_skipped() {
-        assert!(!is_circular_origin_clip(
-            true,
-            false,
-            1500,
-            1990,
-            "chr",
-            LEN,
-            '+',
-            TOL,
-            Some("other,3,+,120S400M,60,0;")
-        ));
-        assert!(!is_circular_origin_clip(
-            true,
-            true,
-            5,
-            505,
-            "chr",
-            LEN,
-            '+',
-            TOL,
-            Some("other,1801,+,200M120S,60,0;")
-        ));
+        assert_eq!(
+            circ(true, false, 1500, 1990, "chr", LEN, '+', TOL, Some("other,3,+,120S400M,60,0;")),
+            OriginClip::None
+        );
+        assert_eq!(
+            circ(true, true, 5, 505, "chr", LEN, '+', TOL, Some("other,1801,+,200M120S,60,0;")),
+            OriginClip::None
+        );
     }
 
     #[test]
     fn partner_wrong_strand_not_skipped() {
-        assert!(!is_circular_origin_clip(
-            true,
-            false,
-            1500,
-            1990,
-            "chr",
-            LEN,
-            '+',
-            TOL,
-            Some("chr,3,-,120S400M,60,0;")
-        ));
-        assert!(!is_circular_origin_clip(
-            true,
-            true,
-            5,
-            505,
-            "chr",
-            LEN,
-            '-',
-            TOL,
-            Some("chr,1801,+,200M120S,60,0;")
-        ));
+        assert_eq!(
+            circ(true, false, 1500, 1990, "chr", LEN, '+', TOL, Some("chr,3,-,120S400M,60,0;")),
+            OriginClip::None
+        );
+        assert_eq!(
+            circ(true, true, 5, 505, "chr", LEN, '-', TOL, Some("chr,1801,+,200M120S,60,0;")),
+            OriginClip::None
+        );
     }
 
     #[test]
     fn too_far_record_or_partner_not_skipped() {
         // Partner too far from start (1-based 102 -> 0-based 101 > 100).
-        assert!(!is_circular_origin_clip(
-            true,
-            false,
-            1500,
-            1990,
-            "chr",
-            LEN,
-            '+',
-            TOL,
-            Some("chr,102,+,120S400M,60,0;")
-        ));
+        assert_eq!(
+            circ(true, false, 1500, 1990, "chr", LEN, '+', TOL, Some("chr,102,+,120S400M,60,0;")),
+            OriginClip::None
+        );
         // Record too far from right end (1899 < 1900).
-        assert!(!is_circular_origin_clip(
-            true,
-            false,
-            1400,
-            1899,
-            "chr",
-            LEN,
-            '+',
-            TOL,
-            Some("chr,3,+,120S400M,60,0;")
-        ));
+        assert_eq!(
+            circ(true, false, 1400, 1899, "chr", LEN, '+', TOL, Some("chr,3,+,120S400M,60,0;")),
+            OriginClip::None
+        );
         // Partner ends too far from right end (1700 + 199 = 1899 < 1900).
-        assert!(!is_circular_origin_clip(
-            true,
-            true,
-            5,
-            505,
-            "chr",
-            LEN,
-            '+',
-            TOL,
-            Some("chr,1701,+,199M120S,60,0;")
-        ));
+        assert_eq!(
+            circ(true, true, 5, 505, "chr", LEN, '+', TOL, Some("chr,1701,+,199M120S,60,0;")),
+            OriginClip::None
+        );
         // Record too far from left end (101 > 100).
-        assert!(!is_circular_origin_clip(
-            true,
-            true,
-            101,
-            601,
-            "chr",
-            LEN,
-            '+',
-            TOL,
-            Some("chr,1801,+,200M120S,60,0;")
-        ));
+        assert_eq!(
+            circ(true, true, 101, 601, "chr", LEN, '+', TOL, Some("chr,1801,+,200M120S,60,0;")),
+            OriginClip::None
+        );
     }
 
     #[test]
     fn tol_zero_rejects_near_end_even_with_partner() {
-        assert!(!is_circular_origin_clip(
-            true,
-            false,
-            1500,
-            1990,
-            "chr",
-            LEN,
-            '+',
-            0,
-            Some("chr,1,+,120S400M,60,0;")
-        ));
-        assert!(!is_circular_origin_clip(
-            true,
-            true,
-            1,
-            501,
-            "chr",
-            LEN,
-            '+',
-            0,
-            Some("chr,1801,+,200M120S,60,0;")
-        ));
+        assert_eq!(
+            circ(true, false, 1500, 1990, "chr", LEN, '+', 0, Some("chr,1,+,120S400M,60,0;")),
+            OriginClip::None
+        );
+        assert_eq!(
+            circ(true, true, 1, 501, "chr", LEN, '+', 0, Some("chr,1801,+,200M120S,60,0;")),
+            OriginClip::None
+        );
     }
 
     #[test]
     fn tol_capped_at_half_contig_len() {
         // len 50, tol 100 -> effective 25: a right clip ending at 20 and a left
         // clip starting at 30 are not near an end.
-        assert!(!is_circular_origin_clip(
-            true,
-            false,
-            0,
-            20,
-            "chr",
-            50,
-            '+',
-            100,
-            Some("chr,1,+,10S30M,60,0;")
-        ));
-        assert!(!is_circular_origin_clip(
-            true,
-            true,
-            30,
-            45,
-            "chr",
-            50,
-            '+',
-            100,
-            Some("chr,21,+,30M10S,60,0;")
-        ));
+        assert_eq!(
+            circ(true, false, 0, 20, "chr", 50, '+', 100, Some("chr,1,+,10S30M,60,0;")),
+            OriginClip::None
+        );
+        assert_eq!(
+            circ(true, true, 30, 45, "chr", 50, '+', 100, Some("chr,21,+,30M10S,60,0;")),
+            OriginClip::None
+        );
     }
 
     #[test]
     fn saturates_when_tol_exceeds_contig_len() {
-        assert!(is_circular_origin_clip(
-            true,
+        assert_eq!(
+            circ(true, false, 10, 40, "chr", 50, '+', 100, Some("chr,1,+,10S30M,60,0;")),
+            OriginClip::NearEnd
+        );
+        assert_eq!(
+            circ(true, true, 10, 40, "chr", 50, '+', 100, Some("chr,21,+,30M10S,60,0;")),
+            OriginClip::NearEnd
+        );
+    }
+}
+
+#[cfg(test)]
+mod hairpin_unit {
+    use super::*;
+
+    fn params_150() -> FishParams {
+        FishParams { clip_min_len: 150, ..Default::default() }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn check(
+        contig: &str,
+        rstart: u64,
+        rend: u64,
+        strand: char,
+        lead: u64,
+        trail: u64,
+        read_len: u64,
+        clip_is_left: bool,
+        p: &FishParams,
+        sa_raw: Option<&str>,
+    ) -> Option<String> {
+        let parsed = sa_raw.and_then(|s| crate::translate::parse_sa(s).ok());
+        find_hairpin_partner(
+            contig,
+            rstart,
+            rend,
+            strand,
+            lead,
+            trail,
+            read_len,
+            clip_is_left,
+            p,
+            parsed.as_deref(),
+        )
+    }
+
+    #[test]
+    fn example_read_positive_both_directions() {
+        // Example read: L=5234; arm1 + 3:3835-6489 (q7-2657, 7S..2577S); arm2 - 3:3865-6493 (q2657-5234, 2629M2657S with 52D or 2577M2657S).
+        // Let's use 2629=2629 ref span (52D -> 2577M52D2657S = query 5234, ref 2629 -> 3864..6493).
+        let p = params_150();
+        let l = 5234u64;
+        // R = primary (+), right clip (trail = 2577)
+        let d_prim = check(
+            "3",
+            3834,
+            6489,
+            '+',
+            7,
+            2577,
+            l,
             false,
-            10,
-            40,
-            "chr",
-            50,
+            &p,
+            Some("3,3865,-,2577M52D2657S,60,0;"),
+        );
+        assert_eq!(
+            d_prim.as_deref(),
+            Some("arm1=q7-2657,r3834-6489,+;arm2=q2657-5234,r3864-6493,-")
+        );
+        // R = primary (+) left clip (lead = 7, even if < clip_min_len, no partner before R)
+        assert_eq!(
+            check("3", 3834, 6489, '+', 7, 2577, l, true, &p, Some("3,3865,-,2577M52D2657S,60,0;")),
+            None
+        );
+
+        // R = supplementary (-), right clip (trail = 2657 = read 5' [0, 2657))
+        let d_supp = check(
+            "3",
+            3864,
+            6493,
+            '-',
+            0,
+            2657,
+            l,
+            false,
+            &p,
+            Some("3,3835,+,7S2650M5D2577S,60,0;"),
+        );
+        assert_eq!(
+            d_supp.as_deref(),
+            Some("arm1=q7-2657,r3834-6489,+;arm2=q2657-5234,r3864-6493,-")
+        );
+    }
+
+    #[test]
+    fn same_strand_rejected() {
+        let p = params_150();
+        assert_eq!(
+            check("3", 3834, 6489, '+', 7, 2577, 5234, false, &p, Some("3,3865,+,2657S2577M,60,0;")),
+            None
+        );
+    }
+
+    #[test]
+    fn different_contig_rejected() {
+        let p = params_150();
+        assert_eq!(
+            check("3", 3834, 6489, '+', 7, 2577, 5234, false, &p, Some("4,3865,-,2577M2657S,60,0;")),
+            None
+        );
+    }
+
+    #[test]
+    fn side_by_side_no_ref_overlap_rejected() {
+        let p = params_150();
+        // Adjacent on read (q0-2500 and q2500-5000), opposite strand, but disjoint on ref (r1000-3500 vs r3500-6000).
+        assert_eq!(
+            check("chr", 1000, 3500, '+', 0, 2500, 5000, false, &p, Some("chr,3501,-,2500M2500S,60,0;")),
+            None
+        );
+        // Partial overlap < 0.5 of shorter span (2500 * 0.5 = 1250; overlap = 1249 -> r2251..4751).
+        assert_eq!(
+            check("chr", 1000, 3500, '+', 0, 2500, 5000, false, &p, Some("chr,2252,-,2500M2500S,60,0;")),
+            None
+        );
+        // Overlap == 1250 -> accepted.
+        assert!(
+            check("chr", 1000, 3500, '+', 0, 2500, 5000, false, &p, Some("chr,2251,-,2500M2500S,60,0;"))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn query_gap_or_overlap_too_large_rejected() {
+        let p = params_150(); // L=5000 -> gap limit = max(200, 0.02 * 5000 = 100) = 200
+        // Test positive gap with clip_min_len=250 so residual (< 250) doesn't reject gap=200.
+        let p250 = FishParams { clip_min_len: 250, ..p.clone() };
+        // R: [0, 2400) (trail=2600). E: [2601, 5000) -> gap = 201 > 200.
+        assert_eq!(
+            check("chr", 1000, 3400, '+', 0, 2600, 5000, false, &p250, Some("chr,1001,-,2399M2601S,60,0;")),
+            None
+        );
+        // Gap == 200 -> E: [2600, 5000) -> accepted.
+        assert!(
+            check("chr", 1000, 3400, '+', 0, 2600, 5000, false, &p250, Some("chr,1001,-,2400M2600S,60,0;"))
+                .is_some()
+        );
+        // Overlap == 201 -> R: [0, 2600) (trail=2400), E: [2399, 5000) (e_trail=2399, e_q=2601).
+        assert_eq!(
+            check("chr", 1000, 3600, '+', 0, 2400, 5000, false, &p, Some("chr,1001,-,2601M2399S,60,0;")),
+            None
+        );
+        // Overlap == 200 -> accepted.
+        assert!(
+            check("chr", 1000, 3600, '+', 0, 2400, 5000, false, &p, Some("chr,1001,-,2600M2400S,60,0;"))
+                .is_some()
+        );
+        // Long read L=20000 -> gap limit = 0.02 * 20000 = 400. Overlap 400 -> accepted; overlap 401 -> rejected.
+        // R: [0, 10400) (trail=9600), E: [10000, 20000) -> overlap 400 -> accepted.
+        assert!(
+            check("chr", 1000, 11400, '+', 0, 9600, 20000, false, &p, Some("chr,1001,-,10000M10000S,60,0;"))
+                .is_some()
+        );
+        // R: [0, 10401) (trail=9599), E: [10000, 20000) -> overlap 401 -> rejected.
+        assert_eq!(
+            check("chr", 1000, 11401, '+', 0, 9599, 20000, false, &p, Some("chr,1001,-,10000M10000S,60,0;")),
+            None
+        );
+    }
+
+    #[test]
+    fn short_arm_rejected() {
+        let p = params_150();
+        // L=5000, min arm = 0.2 * 5000 = 1000.
+        // Partner arm 999 bp ([4001, 5000)) -> rejected.
+        assert_eq!(
+            check("chr", 1000, 5001, '+', 0, 999, 5000, false, &p, Some("chr,1001,-,999M4001S,60,0;")),
+            None
+        );
+        // R arm 999 bp ([0, 999)) -> rejected.
+        assert_eq!(
+            check("chr", 1000, 1999, '+', 0, 4001, 5000, false, &p, Some("chr,1001,-,4001M999S,60,0;")),
+            None
+        );
+        // L=600, 0.2 * 600 = 120 < clip_min_len (150), so 140 bp arm >= 20% but < clip_min_len -> rejected.
+        assert_eq!(
+            check("chr", 1000, 1460, '+', 0, 140, 600, false, &p, Some("chr,1001,-,140M460S,60,0;")),
+            None
+        );
+    }
+
+    #[test]
+    fn reverse_strand_primary_clip_side_mapping() {
+        let p = params_150();
+        let l = 5000u64;
+        // Reverse primary: arm1 is `-` at [0, 2500) (so in `-` BAM CIGAR: 2500S2500M, lead=2500, trail=0).
+        // Partner arm2 is `+` at [2500, 5000) (SA: 2500S2500M).
+        // Left BAM clip (`clip_is_left = true`, lead = 2500 = read 3' [2500, 5000)) matches!
+        assert_eq!(
+            check("chr", 1000, 3500, '-', 2500, 0, l, true, &p, Some("chr,1001,+,2500S2500M,60,0;"))
+                .as_deref(),
+            Some("arm1=q0-2500,r1000-3500,-;arm2=q2500-5000,r1000-3500,+")
+        );
+        // Reverse primary with an extra 5' clip (trail = 300 in `-` BAM CIGAR: 2500S2200M300S -> [300, 2500)):
+        // Left clip (lead = 2500 -> read 3' [2500, 5000)) converts to hairpin;
+        // Right clip (trail = 300 -> read 5' [0, 300)) has no partner before R -> stays clip (`None`).
+        assert!(
+            check("chr", 1000, 3200, '-', 2500, 300, l, true, &p, Some("chr,1001,+,2500S2500M,60,0;"))
+                .is_some()
+        );
+        assert_eq!(
+            check("chr", 1000, 3200, '-', 2500, 300, l, false, &p, Some("chr,1001,+,2500S2500M,60,0;")),
+            None
+        );
+
+        // Reverse primary as arm2 at [2500, 5000) with extra 3' clip (lead = 300 -> read 3' [4700, 5000)):
+        // R CIGAR: 300S2200M2500S (r_qs=2500, r_qe=4700). Partner arm1 `+` at [0, 2500) (SA: 2500M2500S).
+        // Right clip (trail = 2500 -> read 5' [0, 2500)) converts to hairpin;
+        // Left clip (lead = 300 -> read 3' [4700, 5000)) stays clip (`None`).
+        assert_eq!(
+            check("chr", 1000, 3200, '-', 300, 2500, l, false, &p, Some("chr,1001,+,2500M2500S,60,0;"))
+                .as_deref(),
+            Some("arm1=q0-2500,r1000-3500,+;arm2=q2500-4700,r1000-3200,-")
+        );
+        assert_eq!(
+            check("chr", 1000, 3200, '-', 300, 2500, l, true, &p, Some("chr,1001,+,2500M2500S,60,0;")),
+            None
+        );
+    }
+
+    #[test]
+    fn residual_clip_ge_clip_min_len_stays_clip() {
+        let p = params_150();
+        let l = 5000u64;
+        // R (+): [0, 2300) (trail = 2700, read 3' [2300, 5000)).
+        // E (-): [2300, 4850) (e_lead=150, e_trail=2300, e_qlen=2550).
+        // Covered = 2550, residual = 2700 - 2550 = 150 >= 150 -> stays clip (`None`)!
+        assert_eq!(
+            check("chr", 1000, 3300, '+', 0, 2700, l, false, &p, Some("chr,1001,-,150S2550M2300S,60,0;")),
+            None
+        );
+        // E (-): [2300, 4851) -> residual = 149 < 150 -> hairpin!
+        assert!(
+            check("chr", 1000, 3300, '+', 0, 2700, l, false, &p, Some("chr,1001,-,149S2551M2300S,60,0;"))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn sa_parse_failure_treated_as_no_partner() {
+        let p = params_150();
+        assert_eq!(check("3", 3834, 6489, '+', 7, 2577, 5234, false, &p, None), None);
+        assert_eq!(check("3", 3834, 6489, '+', 7, 2577, 5234, false, &p, Some("")), None);
+        assert_eq!(check("3", 3834, 6489, '+', 7, 2577, 5234, false, &p, Some("bad;")), None);
+        assert_eq!(
+            check("3", 3834, 6489, '+', 7, 2577, 5234, false, &p, Some("3,3865,-,2577M2657S,60,0")),
+            None
+        );
+        // Mismatched query length in SA CIGAR -> treated as no partner.
+        assert_eq!(
+            check("3", 3834, 6489, '+', 7, 2577, 5234, false, &p, Some("3,3865,-,2577M2000S,60,0;")),
+            None
+        );
+    }
+
+    #[test]
+    fn sa_hard_clipped_cigar_still_matches() {
+        let p = params_150();
+        let d = check(
+            "3",
+            3834,
+            6489,
             '+',
-            100,
-            Some("chr,1,+,10S30M,60,0;")
-        ));
-        assert!(is_circular_origin_clip(
-            true,
-            true,
-            10,
-            40,
-            "chr",
-            50,
-            '+',
-            100,
-            Some("chr,21,+,30M10S,60,0;")
-        ));
+            7,
+            2577,
+            5234,
+            false,
+            &p,
+            Some("3,3865,-,2577M52D2657H,60,0;"),
+        );
+        assert_eq!(
+            d.as_deref(),
+            Some("arm1=q7-2657,r3834-6489,+;arm2=q2657-5234,r3864-6493,-")
+        );
+    }
+
+    #[test]
+    fn two_sa_candidates_tie_break() {
+        let p = params_150();
+        let l = 5000u64;
+        // R (+): [0, 2500) at ref 1000..3500.
+        // Candidate A: ref 1500..4000 (overlap 2000), q2500-5000.
+        // Candidate B: ref 1000..3500 (overlap 2500), q2500-5000.
+        // B must win regardless of order in SA tag (by larger ref_overlap).
+        let a = "chr,1501,-,2500M2500S,60,0;";
+        let b = "chr,1001,-,2500M2500S,60,0;";
+        let want_b = Some("arm1=q0-2500,r1000-3500,+;arm2=q2500-5000,r1000-3500,-");
+        assert_eq!(check("chr", 1000, 3500, '+', 0, 2500, l, false, &p, Some(&format!("{a}{b}"))).as_deref(), want_b);
+        assert_eq!(check("chr", 1000, 3500, '+', 0, 2500, l, false, &p, Some(&format!("{b}{a}"))).as_deref(), want_b);
+
+        // Equal ref_overlap (2500), different q_gap: C has q_gap=50 (q2550-5000), D has q_gap=0 (q2500-5000). D wins.
+        let c = "chr,1001,-,2450M2550S,60,0;";
+        let d = "chr,1001,-,2500M2500S,60,0;";
+        assert_eq!(check("chr", 1000, 3500, '+', 0, 2500, l, false, &p, Some(&format!("{c}{d}"))).as_deref(), want_b);
+        assert_eq!(check("chr", 1000, 3500, '+', 0, 2500, l, false, &p, Some(&format!("{d}{c}"))).as_deref(), want_b);
+
+        // Equal ref_overlap (2400) and equal q_gap (0):
+        // E covers [2500, 4900) (residual=100), F covers [2500, 4980) (residual=20). F wins.
+        let e = "chr,1001,-,100S2400M2500S,60,0;";
+        let f = "chr,1001,-,20S2480M2500S,60,0;";
+        let want_f = Some("arm1=q0-2500,r1000-3500,+;arm2=q2500-4980,r1000-3480,-");
+        assert_eq!(check("chr", 1000, 3500, '+', 0, 2500, l, false, &p, Some(&format!("{e}{f}"))).as_deref(), want_f);
+        assert_eq!(check("chr", 1000, 3500, '+', 0, 2500, l, false, &p, Some(&format!("{f}{e}"))).as_deref(), want_f);
+    }
+
+    #[test]
+    fn both_clips_are_hairpins() {
+        let p = params_150();
+        let l = 6000u64;
+        // R (+) is the middle arm [2000, 4000) at r1000-3000 (lead=2000, trail=2000).
+        // Partner before: (-) [0, 2000) at r1000-3000 -> SA: 4000S2000M.
+        // Partner after:  (-) [4000, 6000) at r1000-3000 -> SA: 2000M4000S.
+        let sa = "chr,1001,-,4000S2000M,60,0;chr,1001,-,2000M4000S,60,0;";
+        assert_eq!(
+            check("chr", 1000, 3000, '+', 2000, 2000, l, true, &p, Some(sa)).as_deref(),
+            Some("arm1=q0-2000,r1000-3000,-;arm2=q2000-4000,r1000-3000,+")
+        );
+        assert_eq!(
+            check("chr", 1000, 3000, '+', 2000, 2000, l, false, &p, Some(sa)).as_deref(),
+            Some("arm1=q2000-4000,r1000-3000,+;arm2=q4000-6000,r1000-3000,-")
+        );
     }
 }
