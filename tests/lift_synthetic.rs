@@ -437,7 +437,8 @@ fn out_dir(tag: &str) -> PathBuf {
 /// Build a CRAM whose minimap2 `@PG` says `--secondary=yes`.
 fn make_secondary_yes_cram(old_cram: &Path, old_fa: &Path, out: &Path) {
     let h = Command::new("samtools")
-        .args(["view", "-h", "--no-PG"])
+        .args(["view", "-h", "--no-PG", "-T"])
+        .arg(old_fa)
         .arg(old_cram)
         .output()
         .expect("samtools view -h");
@@ -467,7 +468,8 @@ fn header_text(path: &Path) -> String {
 /// (the legacy format an older build wrote).
 fn make_legacy_lift_cram(in_cram: &Path, ref_fa: &Path, out: &Path) {
     let h = Command::new("samtools")
-        .args(["view", "-h", "--no-PG"])
+        .args(["view", "-h", "--no-PG", "-T"])
+        .arg(ref_fa)
         .arg(in_cram)
         .output()
         .expect("samtools view -h");
@@ -490,7 +492,8 @@ fn make_legacy_lift_cram(in_cram: &Path, ref_fa: &Path, out: &Path) {
 /// Write `in_cram` with an extra `@PG` line inserted at the end of the header.
 fn make_old_name_cram(in_cram: &Path, ref_fa: &Path, out: &Path, pg: &str) {
     let h = Command::new("samtools")
-        .args(["view", "-h", "--no-PG"])
+        .args(["view", "-h", "--no-PG", "-T"])
+        .arg(ref_fa)
         .arg(in_cram)
         .output()
         .expect("samtools view -h");
