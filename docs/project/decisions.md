@@ -1512,3 +1512,18 @@ incl. junction45/50/55 supplementaries; first lift `--clip-min-hits 100000` → 
   (`scratch/origin-cont/review2/`). Picking it up needs the two open findings fixed and, ideally, a
   truth set with misjoins at repeat copies of the contig start (the remaining blind spot: a copy
   longer than the tested continuation).
+
+## Linear FASTA headers break ties in `qc` and drive circularity in `fish` (user + manager, 2026-11-19)
+
+- **`qc` (`wrap_decision`):** previously a linear header (`circular=false` / `topology=linear`,
+  `header_circular == Some(false)`) was ignored, so an `unclear`-verdict contig wrapped even when
+  the assembler header marked it linear. New rule: `--linear` → linear (`"flag"`); else
+  `Some(true)` → wrap (`"header"`); else `Some(false)` → wrap by `"verdict"` if `verdict ==
+  circular` (spanning reads beat a linear header, since 3 raw metaMDBG `circular=false` contigs are
+  spanned by reads), otherwise linear by `"header"` (breaking `unclear` ties and agreeing with
+  `linear`); else `None` (absent or conflicting flags) → verdict (`"verdict"`).
+- **`fish`:** `fish` has no read-based verdict; previously only `--linear` made a contig linear. Now
+  per contig: `--linear` → linear (`"flag"`); else the `--ref` FASTA header via
+  `header_circular_flag` (`Some(true)` → circular, `Some(false)` → linear, `"header"`); else
+  absent/conflicting → circular (`"default"`). `P.fish.json` adds top-level `contigs: [{name,
+  length_bp, circular, circular_by}]` additively (`format_version` stays `1`).

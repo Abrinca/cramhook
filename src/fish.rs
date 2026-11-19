@@ -137,8 +137,10 @@ pub struct FishParams {
     /// Chunk size override (bp) for the contig pass; `None` picks one from the
     /// genome size and threads. Test-only.
     pub chunk_size: Option<u64>,
-    /// Linear contigs; all others are circular (a clip at a contig end — or
-    /// within `circ_end_tol` bp with a same-contig, same-strand `SA` partner
+    /// Contigs treated as linear (from `--linear`), overriding a FASTA
+    /// `circular=`/`topology=` header; otherwise the FASTA header decides, and
+    /// absent/conflicting headers default to circular (a clip at a contig end —
+    /// or within `circ_end_tol` bp with a same-contig, same-strand `SA` partner
     /// near the opposite end — is an origin crossing and does not count).
     pub linear: Vec<String>,
     /// Circular contigs: a contig-end clip whose alignment stops within this
@@ -352,6 +354,16 @@ pub struct OriginCrossingSkipped {
     pub clips_near_end: u64,
 }
 
+/// Per-contig circularity decision in `P.fish.json`.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct FishContig {
+    pub name: String,
+    pub length_bp: u64,
+    pub circular: bool,
+    /// Which source decided `circular`: `flag`, `header` or `default`.
+    pub circular_by: &'static str,
+}
+
 /// Wall times.
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct FishTiming {
@@ -370,6 +382,8 @@ pub struct FishSummary {
     /// Origin-crossing clips skipped on circular contigs (not selected).
     pub origin_crossing_skipped: OriginCrossingSkipped,
     pub records: InputCounts,
+    /// Per-contig circularity decision in reference order.
+    pub contigs: Vec<FishContig>,
     pub params: FishParamsOut,
     /// The `bait` step, when `--bait` was given.
     pub bait: Option<BaitSummary>,
@@ -804,7 +818,7 @@ struct Ctx<'a> {
     scope_findings: bool,
     contig_name: &'a [String],
     contig_len: &'a [usize],
-    /// Per contig: circular (not in `--linear`).
+    /// Per contig: circular (from `--linear`, FASTA header, or default circular).
     circular: &'a [bool],
     findings: Option<&'a Findings>,
     groups: Option<&'a Groups>,
@@ -2059,6 +2073,24 @@ pub fn fish_phases(bait: bool) -> Vec<&'static str> {
     v
 }
 
+/// Whether a contig is circular in `fish`, and which source decided it:
+///
+/// 1. `--linear` (the `flag`) forces **linear** (`"flag"`);
+/// 2. otherwise a FASTA header `circular=true`/`topology=circular` or
+///    `circular=false`/`topology=linear` decides (`"header"`);
+/// 3. otherwise (absent or conflicting header flags) the contig defaults to
+///    **circular** (`"default"`).
+fn contig_circular_decision(header: Option<&str>, linear_flag: bool) -> (bool, &'static str) {
+    if linear_flag {
+        (false, "flag")
+    } else {
+        match header.and_then(|h| crate::qc::circularity::header_circular_flag(h).0) {
+            Some(c) => (c, "header"),
+            None => (true, "default"),
+        }
+    }
+}
+
 /// Run `cramhook fish`. Returns the summary (also written to `P.fish.json`).
 pub fn run_fish(input: &Path, ref_path: &Path, out_prefix: &Path, params: &FishParams) -> Result<FishSummary> {
     params.progress.plan(&fish_phases(!params.bait.is_empty()));
@@ -2096,7 +2128,8 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
         notes.push("linked: skipped (no --haplotypes)".to_string());
     }
 
-    // Header: contig names and lengths.
+    // Header: contig names, lengths, and FASTA circularity tags.
+    let fasta = Fasta::load(ref_path)?;
     let r0 = open_indexed(input, ref_path, FIELDS_FISH_FULL)?;
     let hv = r0.header().clone();
     drop(r0);
@@ -2107,7 +2140,20 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
         contig_len.push(hv.target_len(tid as u32).unwrap_or(0) as usize);
     }
     let linear: std::collections::HashSet<&str> = params.linear.iter().map(|s| s.as_str()).collect();
-    let circular: Vec<bool> = contig_name.iter().map(|n| !linear.contains(n.as_str())).collect();
+    let mut circular: Vec<bool> = Vec::with_capacity(contig_name.len());
+    let mut contigs: Vec<FishContig> = Vec::with_capacity(contig_name.len());
+    for (tid, name) in contig_name.iter().enumerate() {
+        let (is_circ, by) =
+            contig_circular_decision(fasta.header_of(name), linear.contains(name.as_str()));
+        circular.push(is_circ);
+        contigs.push(FishContig {
+            name: name.clone(),
+            length_bp: contig_len[tid] as u64,
+            circular: is_circ,
+            circular_by: by,
+        });
+    }
+    drop(fasta);
     let name_to_tid: HashMap<String, usize> =
         contig_name.iter().enumerate().map(|(i, n)| (n.clone(), i)).collect();
 
@@ -2481,6 +2527,7 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
         hairpin_detected,
         origin_crossing_skipped,
         records: counts,
+        contigs,
         params: FishParamsOut {
             scope: match scope {
                 FishScope::Findings => "findings".to_string(),
@@ -2934,6 +2981,37 @@ mod circ_clip_unit {
             circ(true, true, 10, 40, "chr", 50, '+', 100, Some("chr,21,+,30M10S,60,0;")),
             OriginClip::NearEnd
         );
+    }
+
+    #[test]
+    fn circular_decision_sources() {
+        // `--linear` overrides every header (circular, linear, absent, conflict).
+        assert_eq!(contig_circular_decision(Some("chr circular=true"), true), (false, "flag"));
+        assert_eq!(contig_circular_decision(Some("chr topology=circular"), true), (false, "flag"));
+        assert_eq!(contig_circular_decision(Some("chr circular=false"), true), (false, "flag"));
+        assert_eq!(contig_circular_decision(Some("chr"), true), (false, "flag"));
+        assert_eq!(contig_circular_decision(None, true), (false, "flag"));
+
+        // FASTA header `circular=` / `topology=` decides when `--linear` is absent.
+        assert_eq!(contig_circular_decision(Some("chr circular=true"), false), (true, "header"));
+        assert_eq!(
+            contig_circular_decision(Some("chr [topology=circular]"), false),
+            (true, "header")
+        );
+        assert_eq!(contig_circular_decision(Some("chr circular=false"), false), (false, "header"));
+        assert_eq!(
+            contig_circular_decision(Some("chr [topology=linear]"), false),
+            (false, "header")
+        );
+
+        // Absent, unknown, or conflicting headers default to circular.
+        assert_eq!(contig_circular_decision(Some("chr length=1000"), false), (true, "default"));
+        assert_eq!(contig_circular_decision(Some("chr"), false), (true, "default"));
+        assert_eq!(
+            contig_circular_decision(Some("chr circular=true topology=linear"), false),
+            (true, "default")
+        );
+        assert_eq!(contig_circular_decision(None, false), (true, "default"));
     }
 }
 

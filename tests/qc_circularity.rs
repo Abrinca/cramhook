@@ -521,8 +521,11 @@ fn end_tol_boundary() {
 }
 
 /// The wrap decision and its source in the JSON: `--linear` forces linear; a
-/// header `circular=true` forces circular; otherwise the verdict decides
-/// (circular/unclear wrap, linear does not).
+/// header `circular=true` forces circular; a linear header (`circular=false`/
+/// `topology=linear`) yields to spanning reads (`circular` verdict -> wraps by
+/// verdict) and otherwise keeps the contig linear (by header); absent/
+/// conflicting headers defer to the verdict (circular/unclear wrap, linear
+/// does not).
 #[test]
 fn wrap_status_and_source() {
     let refseq = random_ref(L, 101);
@@ -548,6 +551,17 @@ fn wrap_status_and_source() {
     run_qc(&bam, &fa, &p, &params(1, None)).unwrap();
     let j = json(&p.with_extension("json"));
     assert_eq!(j["contigs"]["chr"]["circularity"]["verdict"], "circular", "{j}");
+    assert_eq!(j["contigs"]["chr"]["circular"], true, "{j}");
+    assert_eq!(j["contigs"]["chr"]["circular_by"], "verdict", "{j}");
+
+    // Linear header + spanning reads -> spanning reads beat the linear header (wrapped by verdict).
+    let dir = workdir("wrap_linear_header_spanning");
+    let (bam, fa) = write_bam(&dir, &refseq, "chr circular=false", circ_reads.clone());
+    let p = dir.join("out");
+    run_qc(&bam, &fa, &p, &params(1, None)).unwrap();
+    let j = json(&p.with_extension("json"));
+    assert_eq!(j["contigs"]["chr"]["circularity"]["verdict"], "circular", "{j}");
+    assert_eq!(j["contigs"]["chr"]["circularity"]["header_circular"], false, "{j}");
     assert_eq!(j["contigs"]["chr"]["circular"], true, "{j}");
     assert_eq!(j["contigs"]["chr"]["circular_by"], "verdict", "{j}");
 
@@ -578,7 +592,7 @@ fn wrap_status_and_source() {
     assert_eq!(j["contigs"]["chr"]["circular"], false, "{j}");
     assert_eq!(j["contigs"]["chr"]["circular_by"], "verdict", "{j}");
 
-    // An unclear verdict wraps (by verdict).
+    // An unclear verdict with no header wraps (by verdict).
     let dir = workdir("wrap_unclear");
     let refseq3 = random_ref(L, 303);
     let mut reads3 = Vec::new();
@@ -586,13 +600,24 @@ fn wrap_status_and_source() {
         reads3.push(end_only(i, &refseq3, true, 80));
         reads3.push(end_only(i, &refseq3, false, 80));
     }
-    let (bam, fa) = write_bam(&dir, &refseq3, "chr", reads3);
+    let (bam, fa) = write_bam(&dir, &refseq3, "chr", reads3.clone());
     let p = dir.join("out");
     run_qc(&bam, &fa, &p, &params(1, None)).unwrap();
     let j = json(&p.with_extension("json"));
     assert_eq!(j["contigs"]["chr"]["circularity"]["verdict"], "unclear", "{j}");
     assert_eq!(j["contigs"]["chr"]["circular"], true, "{j}");
     assert_eq!(j["contigs"]["chr"]["circular_by"], "verdict", "{j}");
+
+    // Unclear verdict + linear header -> header breaks the tie -> not wrapped (by header).
+    let dir = workdir("wrap_unclear_linear_header");
+    let (bam, fa) = write_bam(&dir, &refseq3, "chr [topology=linear]", reads3);
+    let p = dir.join("out");
+    run_qc(&bam, &fa, &p, &params(1, None)).unwrap();
+    let j = json(&p.with_extension("json"));
+    assert_eq!(j["contigs"]["chr"]["circularity"]["verdict"], "unclear", "{j}");
+    assert_eq!(j["contigs"]["chr"]["circularity"]["header_circular"], false, "{j}");
+    assert_eq!(j["contigs"]["chr"]["circular"], false, "{j}");
+    assert_eq!(j["contigs"]["chr"]["circular_by"], "header", "{j}");
 }
 
 #[test]

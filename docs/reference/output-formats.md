@@ -166,8 +166,10 @@ several links are `|`-joined).
 `reads`, `assembly`, `alerts` (including a `gray` count for homopolymer indels, kept separate from
 red/orange/yellow; `alerts.lowcov` has it too), `findings`, `warnings`, `contigs` (per contig
 `circular` and `circular_by` — `verdict`, `header` or `flag` — say whether the contig wraps and which
-source decided it, precedence `--linear` → FASTA header `circular=true`/`topology=circular` →
-verdict, with a `circular`/`unclear` verdict wrapping and `linear` not; also `circularity`: verdict
+source decided it: `--linear` forces linear (`flag`); else `circular=true`/`topology=circular` wraps
+(`header`); else `circular=false`/`topology=linear` wraps on a `circular` verdict (`verdict`, reads
+beat a linear header) and stays linear otherwise (`header`); else (no or conflicting header flag)
+the verdict decides (`verdict`, `circular`/`unclear` wrap, `linear` does not); also `circularity`: verdict
 circular/linear/unclear from reads spanning the end→start junction, the FASTA header flag, and the
 junction as `clean`, `overlap_<n>` or `gap_<n>`), `linkage`, and `qc_qv` =
 `max(0, −10·log10((trusted red+orange site calls + 1) / (confident bases + 1)))`, finite with zero
@@ -285,6 +287,7 @@ thresholds used, and timing. Top-level keys:
 | `hairpin_detected` | `reads`, `records` with >= 1 clip that is clip-enabled (not `--no-clips`), in scope (`--scope`), not an origin crossing, and converted to `hairpin` (or would be converted under `--no-hairpins`); 0 when `--no-clips` is set |
 | `origin_crossing_skipped` | origin-crossing clips skipped on circular contigs before `--scope` filtering (unselected; all 0 when `--no-clips` is set): `reads` (distinct reads), `records` (distinct records), `clips` (skipped clip events: `clips_exact + clips_near_end`; a record skipped at both ends counts 2 clips, 1 record), `clips_exact` (at exact contig ends), `clips_near_end` (via `--circ-end-tol` + `SA`) |
 | `records` | input record counts: `total`, `primary`, `supplementary`, `secondary`, `duplicate`, `qcfail`, `unmapped`, `mapped_bp`, `unmapped_bp` |
+| `contigs` | per-contig circularity in reference order: `name`, `length_bp`, `circular`, `circular_by` (`flag` from `--linear`, `header` from `circular=`/`topology=`, or `default` when absent/conflicting) |
 | `params` | `scope`, `min_tier`, `finding_pad`, `unmapped`, `clips`, `hairpins`, `indels`, `linked`, `bait`, `locus`, `locus_flank`, `clip_min_len`, `circ_end_tol`, `hairpin_min_overlap`, `hairpin_max_gap`, `hairpin_max_gap_frac`, `hairpin_min_arm_frac`, `indel_min_len`, `indel_merge_gap`, `indel_piece_min`, `clip_cap` (0 = off), `clip_bin` |
 | `bait` | `null` without `--bait`; see below |
 | `notes` | categories turned off or skipped (e.g. `linked` without `--haplotypes`) |

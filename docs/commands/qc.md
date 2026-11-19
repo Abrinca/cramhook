@@ -23,6 +23,7 @@ cramhook qc --in old.cram --ref old.fa --preset lr:hq --out-prefix q --candidate
 | Flag | Default | Purpose |
 |------|---------|---------|
 | `--threads` | all cores | worker threads for the scan, circularity and linkage passes |
+| `--linear c1,c2` | none | contigs treated as linear, overriding the circularity verdict and FASTA header (otherwise `circular=true`/`topology=circular` wraps, `circular=false`/`topology=linear` wraps only on a `circular` verdict, and absent/conflicting headers wrap on `circular`/`unclear`) |
 | `--candidates` | off | also write `q.candidates.tsv` |
 | `--crispr` | off | annotate CRISPR arrays detected in `--ref` (annotation only; see below) |
 | `--gc-window` | 100 | GC track window in bp (`q.gc.bedgraph`); `0` disables the file |

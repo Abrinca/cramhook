@@ -14,9 +14,10 @@ pub struct QcParams {
     pub preset: Option<Preset>,
     #[serde(skip)]
     pub threads: usize,
-    /// Contigs treated as linear (from `--linear`); all others wrap iff the
-    /// circularity verdict is `circular`/`unclear` or the FASTA header says
-    /// `circular=true`.
+    /// Contigs treated as linear (from `--linear`), overriding the circularity
+    /// verdict and FASTA header. Otherwise `circular=true`/`topology=circular`
+    /// wraps, `circular=false`/`topology=linear` wraps only on a `circular`
+    /// verdict, and absent/conflicting headers wrap on `circular`/`unclear`.
     pub linear: Vec<String>,
     /// Write `P.candidates.tsv`.
     pub candidates: bool,

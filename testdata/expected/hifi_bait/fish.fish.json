@@ -48,6 +48,44 @@
     "mapped_bp": 52934520,
     "unmapped_bp": 1166
   },
+  "contigs": [
+    {
+      "name": "FAM29080-p1-1.1_scf1",
+      "length_bp": 1934799,
+      "circular": true,
+      "circular_by": "header"
+    },
+    {
+      "name": "FAM29080-p1-1.1_scf2",
+      "length_bp": 69597,
+      "circular": true,
+      "circular_by": "header"
+    },
+    {
+      "name": "FAM29080-p1-1.1_scf3",
+      "length_bp": 23727,
+      "circular": true,
+      "circular_by": "header"
+    },
+    {
+      "name": "FAM29080-p1-1.1_scf4",
+      "length_bp": 20593,
+      "circular": true,
+      "circular_by": "header"
+    },
+    {
+      "name": "FAM29080-p1-1.1_scf5",
+      "length_bp": 19989,
+      "circular": true,
+      "circular_by": "header"
+    },
+    {
+      "name": "FAM29080-p1-1.1_scf6",
+      "length_bp": 10330,
+      "circular": true,
+      "circular_by": "header"
+    }
+  ],
   "params": {
     "scope": "findings",
     "min_tier": "yellow",

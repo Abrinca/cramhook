@@ -17,6 +17,7 @@ cramhook fish --in old.cram --ref asm.fa --out-prefix P [--threads N] [--linear 
 
 | Flag | Default | Purpose |
 |------|---------|---------|
+| `--linear c1,c2` | none | contigs treated as linear, overriding a FASTA `circular=`/`topology=` header; otherwise the FASTA header decides (`circular=true`/`topology=circular` or `circular=false`/`topology=linear`), and absent or conflicting headers default to circular |
 | `--no-hairpins` | off | do not emit `hairpin` events (and do not fall back to `clip` for them, so a read selected only because of a hairpin is not selected; `hairpin_detected` in `P.fish.json` is still counted whenever clips are enabled and in scope) |
 | `--circ-end-tol BP` | `100` | circular contigs: a clip stopping within `BP` of a contig end is an origin crossing (skipped) when `SA` has a same-contig, same-strand segment within `BP` of the opposite end (`0` = exact ends only; capped at half the contig length; the partner is read from `SA` and not checked to be a counted record or to cover the clipped bases) |
 | `--clip-cap N` | `0` (off) | keep at most `N` clip-selected reads per bin of `--clip-bin` reference bp; see [Capping clip reads](#capping-clip-reads) |
@@ -33,7 +34,7 @@ of its counted records qualifies for any enabled category:
 | reason | a read is selected when | detail |
 |---|---|---|
 | `unmapped` | it has an unmapped record (0x4), placed or unplaced | `.` |
-| `clip` | a terminal soft clip ≥ `--clip-min-len` (not converted to `hairpin`); on a **circular** contig a clip at an exact contig end — or within `--circ-end-tol` bp with a same-contig, same-strand `SA` segment within `--circ-end-tol` bp of the opposite end — is an origin crossing (skipped), on `--linear` contigs it counts | `side=left;len=N` / `side=right;len=N` |
+| `clip` | a terminal soft clip ≥ `--clip-min-len` (not converted to `hairpin`); on a **circular** contig a clip at an exact contig end — or within `--circ-end-tol` bp with a same-contig, same-strand `SA` segment within `--circ-end-tol` bp of the opposite end — is an origin crossing (skipped), on linear contigs (`--linear` or a `circular=false`/`topology=linear` FASTA header; absent/conflicting headers default to circular) it counts | `side=left;len=N` / `side=right;len=N` |
 | `hairpin` | a qualifying terminal clip (≥ `--clip-min-len`, in scope, not an origin crossing) is paired with an opposite-strand `SA` entry on the same contig whose reference overlap is ≥ 50 % of the shorter span, whose original-orientation query interval is adjacent to the record's (\|gap or overlap\| ≤ max(200, 0.02 × read length)) with each arm ≥ 20 % of the read length and ≥ `--clip-min-len`, and whose arm covers the clipped read region leaving residual < `--clip-min-len`. Any pair of counted records qualifies (primary/supplementary or supplementary/supplementary); the partner is taken from the record's `SA` tag (not checked to be a counted record) | `arm1=q<s>-<e>,r<s>-<e>,<strand>;arm2=q<s>-<e>,r<s>-<e>,<strand>` (`arm1` earlier in the read; `q` = 0-based half-open original-orientation query coords, `r` = 0-based half-open reference coords) |
 | `large_ins` / `large_del` | a merged large indel (`--indel-merge-gap`, `--indel-piece-min`) ≥ `--indel-min-len` | `len=N;at=P` |
 | `linked` | the read is listed in `--haplotypes` for a group whose span overlaps a finding of tier ≥ `--min-tier` (findings scope) or any group (genome scope) | `group=N` |
@@ -130,7 +131,7 @@ always records `mode` and the number of supplementary-only reads; an absent flag
 | `P.fastq.gz` | the selected reads (BGZF), each once, in original orientation, sorted by read name |
 | `P.fish.tsv` | one row per (read, reason, finding) |
 | `P.lengths.tsv` | log-spaced read-length histogram (`bin_lo`, `reads`, `bp`) across every counted read (primary + unmapped); always written (header only when empty) |
-| `P.fish.json` | selected reads and bp per reason and in total, reads dropped by `--clip-cap`, `hairpin_detected` counts, `origin_crossing_skipped` counts, input record counts, categories and thresholds, timing; a `bait` block with `--bait` |
+| `P.fish.json` | selected reads and bp per reason and in total, reads dropped by `--clip-cap`, `hairpin_detected` counts, `origin_crossing_skipped` counts, input record counts, per-contig circularity (`contigs`), categories and thresholds, timing; a `bait` block with `--bait` |
 | `P.bait_ref.fa` (with `--bait`) | assembly + bait contigs, indexed |
 | `P.bait.cram` (with `--bait`) | the bait lift, with index |
 

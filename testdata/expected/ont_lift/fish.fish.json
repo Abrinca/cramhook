@@ -40,6 +40,44 @@
     "mapped_bp": 53344004,
     "unmapped_bp": 12595
   },
+  "contigs": [
+    {
+      "name": "1",
+      "length_bp": 1934799,
+      "circular": true,
+      "circular_by": "default"
+    },
+    {
+      "name": "4",
+      "length_bp": 20593,
+      "circular": true,
+      "circular_by": "default"
+    },
+    {
+      "name": "5",
+      "length_bp": 19989,
+      "circular": true,
+      "circular_by": "default"
+    },
+    {
+      "name": "3",
+      "length_bp": 23726,
+      "circular": true,
+      "circular_by": "default"
+    },
+    {
+      "name": "2",
+      "length_bp": 69597,
+      "circular": true,
+      "circular_by": "default"
+    },
+    {
+      "name": "6",
+      "length_bp": 10330,
+      "circular": true,
+      "circular_by": "default"
+    }
+  ],
   "params": {
     "scope": "findings",
     "min_tier": "yellow",

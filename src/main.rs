@@ -84,8 +84,9 @@ struct QcArgs {
     #[arg(long, default_value_t = default_threads())]
     threads: usize,
     /// Contigs treated as linear (comma-separated), overriding the circularity
-    /// verdict and a FASTA `circular=true` header. All other contigs wrap iff
-    /// the verdict is `circular`/`unclear` or the header says `circular=true`.
+    /// verdict and FASTA header. Otherwise `circular=true`/`topology=circular`
+    /// wraps, `circular=false`/`topology=linear` wraps only on a `circular`
+    /// verdict, and absent/conflicting headers wrap on `circular`/`unclear`.
     #[arg(long, value_delimiter = ',')]
     linear: Vec<String>,
     /// Also write `<prefix>.candidates.tsv` (every pre-filtered candidate with all statistics).
@@ -380,7 +381,9 @@ struct FishArgs {
     /// Threads (default: all available cores).
     #[arg(long, default_value_t = default_threads())]
     threads: usize,
-    /// Linear contigs (comma-separated); all others are circular.
+    /// Contigs treated as linear (comma-separated), overriding a FASTA
+    /// `circular=`/`topology=` header. Otherwise a FASTA header flag decides;
+    /// absent or conflicting headers default to circular.
     #[arg(long, value_delimiter = ',')]
     linear: Vec<String>,
     /// `P.findings.bed`; required by `--locus` and `--scope findings`, and the

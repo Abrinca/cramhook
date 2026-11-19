@@ -2983,3 +2983,132 @@ fn fish_empty_bam() {
         "unexpected warning on mapped BAM:\n{mapped_stderr}"
     );
 }
+
+#[test]
+fn fish_header_circularity_and_linear_override() {
+    let l = 2_000usize;
+    let s_lin = random_seq(l, 931);
+    let s_circ = random_seq(l, 932);
+    let s_def = random_seq(l, 933);
+
+    // Three contigs with different FASTA headers:
+    //   0: `c_lin [topology=linear]` -> linear by header
+    //   1: `c_circ circular=true`    -> circular by header
+    //   2: `c_def`                   -> circular by default
+    let dir = workdir("header_circularity");
+    let fa = dir.join("ref.fa");
+    let mut fa_text = String::new();
+    let mut fai_text = String::new();
+    let mut off = 0usize;
+    for (hdr, name, seq) in [
+        ("c_lin [topology=linear]", "c_lin", &s_lin),
+        ("c_circ circular=true", "c_circ", &s_circ),
+        ("c_def", "c_def", &s_def),
+    ] {
+        fa_text.push('>');
+        fa_text.push_str(hdr);
+        fa_text.push('\n');
+        fa_text.push_str(std::str::from_utf8(seq).unwrap());
+        fa_text.push('\n');
+        fai_text.push_str(&format!("{name}\t{l}\t{}\t{l}\t{}\n", off + hdr.len() + 2, l + 1));
+        off += hdr.len() + l + 3;
+    }
+    std::fs::write(&fa, fa_text).unwrap();
+    std::fs::write(dir.join("ref.fa.fai"), fai_text).unwrap();
+
+    let mut header = Header::new();
+    header.push_record(HeaderRecord::new(b"HD").push_tag(b"VN", "1.6").push_tag(b"SO", "coordinate"));
+    for name in ["c_lin", "c_circ", "c_def"] {
+        header.push_record(HeaderRecord::new(b"SQ").push_tag(b"SN", name).push_tag(b"LN", l));
+    }
+
+    let mut recs = Vec::new();
+    for (tid, (prefix, seq)) in [("lin", &s_lin), ("circ", &s_circ), ("def", &s_def)].into_iter().enumerate() {
+        let mut l_seq = vec![b'A'; 120];
+        l_seq.extend_from_slice(&seq[0..500]);
+        recs.push(R {
+            name: format!("{prefix}_left"),
+            tid: tid as i32,
+            pos: 0,
+            cigar: vec![Cigar::SoftClip(120), Cigar::Match(500)],
+            seq: l_seq,
+            qual: vec![30u8; 620],
+            flags: 0,
+        });
+        let mut r_seq = seq[1500..2000].to_vec();
+        r_seq.extend(std::iter::repeat_n(b'T', 120));
+        recs.push(R {
+            name: format!("{prefix}_right"),
+            tid: tid as i32,
+            pos: 1500,
+            cigar: vec![Cigar::Match(500), Cigar::SoftClip(120)],
+            seq: r_seq,
+            qual: vec![30u8; 620],
+            flags: 0,
+        });
+    }
+
+    let bam = dir.join("reads.bam");
+    {
+        let mut w = Writer::from_path(&bam, &header, Format::Bam).unwrap();
+        for r in &recs {
+            let mut rec = Record::new();
+            rec.set(r.name.as_bytes(), Some(&CigarString(r.cigar.clone())), &r.seq, &r.qual);
+            rec.set_tid(r.tid);
+            rec.set_pos(r.pos);
+            rec.set_mapq(60);
+            rec.set_flags(r.flags);
+            rec.set_mtid(-1);
+            rec.set_mpos(-1);
+            w.write(&rec).unwrap();
+        }
+    }
+    bam::index::build(&bam, None, bam::index::Type::Bai, 1).unwrap();
+
+    // Run 1: headers decide (`c_lin` counts, `c_circ` and `c_def` skip).
+    let p_hdr = dir.join("out_hdr");
+    run_fish(&bam, &fa, &p_hdr, &params(1)).unwrap();
+    assert_eq!(
+        reasons_of(&tsv(&p_hdr), "clip"),
+        vec!["lin_left".to_string(), "lin_right".to_string()],
+        "{:?}",
+        tsv(&p_hdr)
+    );
+    let j_hdr = json(&p_hdr);
+    assert_eq!(j_hdr["origin_crossing_skipped"]["clips"], 4, "{j_hdr}");
+    assert_eq!(
+        j_hdr["contigs"],
+        serde_json::json!([
+            {"name": "c_lin", "length_bp": l, "circular": false, "circular_by": "header"},
+            {"name": "c_circ", "length_bp": l, "circular": true, "circular_by": "header"},
+            {"name": "c_def", "length_bp": l, "circular": true, "circular_by": "default"},
+        ]),
+        "{j_hdr}"
+    );
+
+    // Run 2: `--linear c_circ` overrides the `circular=true` header.
+    let p_flag = dir.join("out_flag");
+    run_fish(&bam, &fa, &p_flag, &FishParams { linear: vec!["c_circ".to_string()], ..params(1) }).unwrap();
+    assert_eq!(
+        reasons_of(&tsv(&p_flag), "clip"),
+        vec![
+            "circ_left".to_string(),
+            "circ_right".to_string(),
+            "lin_left".to_string(),
+            "lin_right".to_string(),
+        ],
+        "{:?}",
+        tsv(&p_flag)
+    );
+    let j_flag = json(&p_flag);
+    assert_eq!(j_flag["origin_crossing_skipped"]["clips"], 2, "{j_flag}");
+    assert_eq!(
+        j_flag["contigs"],
+        serde_json::json!([
+            {"name": "c_lin", "length_bp": l, "circular": false, "circular_by": "header"},
+            {"name": "c_circ", "length_bp": l, "circular": false, "circular_by": "flag"},
+            {"name": "c_def", "length_bp": l, "circular": true, "circular_by": "default"},
+        ]),
+        "{j_flag}"
+    );
+}

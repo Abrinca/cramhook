@@ -639,16 +639,29 @@ fn verdict_name(v: Verdict) -> &'static str {
 /// Whether a contig wraps, and which source decided it:
 ///
 /// 1. `--linear` (the `flag`) forces **linear**, regardless of verdict/header;
-/// 2. otherwise a FASTA header `circular=true` forces **circular**;
-/// 3. otherwise the verdict decides: `circular` or `unclear` wrap, `linear`
-///    does not.
+/// 2. otherwise a FASTA header `circular=true`/`topology=circular` forces
+///    **circular** (`"header"`);
+/// 3. otherwise a FASTA header `circular=false`/`topology=linear` yields to a
+///    `circular` verdict (reads spanning the junction beat a linear header,
+///    `"verdict"`) and otherwise keeps the contig **linear** (`"header"`,
+///    breaking `unclear` ties and agreeing with `linear`);
+/// 4. otherwise (absent or conflicting header flags) the verdict decides:
+///    `circular` or `unclear` wrap, `linear` does not (`"verdict"`).
 pub(crate) fn wrap_decision(c: &ContigCircularity, linear_flag: bool) -> (bool, &'static str) {
     if linear_flag {
         (false, "flag")
-    } else if c.header_circular == Some(true) {
-        (true, "header")
     } else {
-        (c.verdict != Verdict::Linear, "verdict")
+        match c.header_circular {
+            Some(true) => (true, "header"),
+            Some(false) => {
+                if c.verdict == Verdict::Circular {
+                    (true, "verdict")
+                } else {
+                    (false, "header")
+                }
+            }
+            None => (c.verdict != Verdict::Linear, "verdict"),
+        }
     }
 }
 
@@ -730,25 +743,30 @@ mod tests {
     }
 
     /// The wrap decision and its source: `--linear` forces linear; else a
-    /// header `circular=true` forces circular; else the verdict decides
-    /// (circular/unclear wrap, linear does not).
+    /// header `circular=true` forces circular; else a header `circular=false`
+    /// yields to a `circular` verdict and otherwise keeps the contig linear;
+    /// else (absent/conflicting header) the verdict decides (circular/unclear
+    /// wrap, linear does not).
     #[test]
     fn wrap_decision_sources() {
         let mk = |verdict, header| ContigCircularity { verdict, header_circular: header, ..Default::default() };
         // `--linear` overrides verdict and header.
         assert_eq!(wrap_decision(&mk(Verdict::Circular, Some(true)), true), (false, "flag"));
         assert_eq!(wrap_decision(&mk(Verdict::Linear, None), true), (false, "flag"));
-        // A header `circular=true` overrides a linear verdict.
+        assert_eq!(wrap_decision(&mk(Verdict::Unclear, Some(false)), true), (false, "flag"));
+        // A header `circular=true` overrides a linear or unclear verdict.
         assert_eq!(wrap_decision(&mk(Verdict::Linear, Some(true)), false), (true, "header"));
         assert_eq!(wrap_decision(&mk(Verdict::Unclear, Some(true)), false), (true, "header"));
-        // Otherwise the verdict decides: linear does not wrap.
-        assert_eq!(wrap_decision(&mk(Verdict::Linear, None), false), (false, "verdict"));
-        assert_eq!(wrap_decision(&mk(Verdict::Linear, Some(false)), false), (false, "verdict"));
-        // Circular and unclear wrap (even with a header circular=false).
-        assert_eq!(wrap_decision(&mk(Verdict::Circular, None), false), (true, "verdict"));
+        assert_eq!(wrap_decision(&mk(Verdict::Circular, Some(true)), false), (true, "header"));
+        // A header `circular=false` yields to spanning reads (`circular` verdict)
+        // and otherwise keeps the contig linear (`"header"`).
         assert_eq!(wrap_decision(&mk(Verdict::Circular, Some(false)), false), (true, "verdict"));
+        assert_eq!(wrap_decision(&mk(Verdict::Linear, Some(false)), false), (false, "header"));
+        assert_eq!(wrap_decision(&mk(Verdict::Unclear, Some(false)), false), (false, "header"));
+        // Absent (or conflicting, which produces `None`) header: the verdict decides.
+        assert_eq!(wrap_decision(&mk(Verdict::Linear, None), false), (false, "verdict"));
+        assert_eq!(wrap_decision(&mk(Verdict::Circular, None), false), (true, "verdict"));
         assert_eq!(wrap_decision(&mk(Verdict::Unclear, None), false), (true, "verdict"));
-        assert_eq!(wrap_decision(&mk(Verdict::Unclear, Some(false)), false), (true, "verdict"));
     }
 
     /// Clean forward junction: end part [len-100, len), start part [0, 200);
