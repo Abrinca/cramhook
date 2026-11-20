@@ -7,15 +7,18 @@ cd "$(dirname "$0")/.."
 
 TARGET=x86_64-unknown-linux-musl
 # Must match the rust pinned in pixi.toml [feature.static.dependencies].
-RUST_VERSION=1.98.1
-RUST_STD_SHA256=bd9f35880de21dab0e387e84009c00001ae7836a4ba565cb16823f13f75f325f
+RUST_VERSION=1.100.0
+RUST_STD_SHA256=9d5211bc7b40195f9700a6f9133831832a32f50d0e2a2c0ae8af801e7656de5c
 
 sysroot="$(rustc --print sysroot)"
 have="$(rustc --version | cut -d' ' -f2)"
 [[ "$have" == "$RUST_VERSION" ]] || { echo "rustc $have != $RUST_VERSION" >&2; exit 1; }
 
 # conda-forge ships no musl rust-std; install the upstream one into this env.
-if [[ ! -d "$sysroot/lib/rustlib/$TARGET/lib" ]]; then
+# The stamp catches a stale copy left behind when pixi upgrades rust in place.
+stamp="$sysroot/lib/rustlib/$TARGET/rust-std-version"
+if [[ "$(cat "$stamp" 2>/dev/null)" != "$RUST_VERSION" ]]; then
+  rm -rf "$sysroot/lib/rustlib/$TARGET"
   dl=scratch/static-build
   tarball="rust-std-$RUST_VERSION-$TARGET.tar.xz"
   mkdir -p "$dl"
@@ -28,6 +31,7 @@ if [[ ! -d "$sysroot/lib/rustlib/$TARGET/lib" ]]; then
   echo "$RUST_STD_SHA256  $dl/$tarball" | sha256sum -c -
   tar -xJf "$dl/$tarball" -C "$dl"
   cp -r "$dl/rust-std-$RUST_VERSION-$TARGET/rust-std-$TARGET/lib/rustlib/$TARGET" "$sysroot/lib/rustlib/"
+  echo "$RUST_VERSION" > "$stamp"
 fi
 
 zig_inc="$CONDA_PREFIX/lib/zig/libc/include"

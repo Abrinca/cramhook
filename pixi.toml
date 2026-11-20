@@ -38,15 +38,12 @@ seqtk = ">=1.5,<2"
 # dependencies never touch the main toolchain). See scratch/cmp-tools/Report.md.
 [feature.testing-clair3.dependencies]
 clair3 = "*"
-samtools = "*"
 
 [feature.testing-sniffles2.dependencies]
 sniffles = ">=2.0,<3"
-samtools = "*"
 
 [feature.testing-myloasm.dependencies]
 myloasm = "*"
-samtools = "*"
 
 # Static musl release build (Plan-v4 step 4). Separate env so the default
 # toolchain stays untouched. conda-forge has no musl rust-std, so
@@ -55,7 +52,7 @@ samtools = "*"
 [feature.static.dependencies]
 zig = "*"
 # must equal the default env rust exactly: the upstream musl rust-std is per-version
-rust = "==1.98.1"
+rust = "==1.100.0"
 
 [feature.static.tasks]
 build-static = "bash scripts/build-static.sh"
