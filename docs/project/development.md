@@ -29,9 +29,9 @@ Cases, provenance and thresholds: [testdata/README.md](https://github.com/Abrinc
 
 ## Tests
 
-`pixi run cargo test --release` runs 523 tests (3 ignored): 364 unit (1 ignored), 11 `diff_synthetic`,
+`pixi run cargo test --release` runs 525 tests (3 ignored): 365 unit (1 ignored), 11 `diff_synthetic`,
 25 `lift_synthetic`, 10 `lift_junction`, 2 `lift_roundtrip` (1 ignored), 8 `translate_synthetic`
-(1 ignored), 28 `qc_synthetic`, 17 `qc_circularity`, 4 `qc_linkage`, 7 `qc_crispr`, 42 `fish` and
+(1 ignored), 28 `qc_synthetic`, 17 `qc_circularity`, 4 `qc_linkage`, 7 `qc_crispr`, 43 `fish` and
 5 `progress`.
 
 | Test target | Covers |

@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.3] - 2026-11-20
 
 ### Changed
 
@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `qc`, so a linear header turns off the origin-crossing clip skip for that contig. `--linear`
   still overrides; contigs without a (consistent) header flag stay circular. `P.fish.json` gains
   `contigs` (`name`, `length_bp`, `circular`, `circular_by`: `flag`, `header` or `default`).
+
+### Output format
+
+- Output format version remains `1` (`format_version` in JSON, `##format_version` in VCF). The only
+  schema change is additive: `P.fish.json` gains `contigs`. The `qc` linear-header change alters
+  which contigs wrap, not the meaning of `circular` / `circular_by`.
 
 ## [0.1.2] - 2026-11-18
 
