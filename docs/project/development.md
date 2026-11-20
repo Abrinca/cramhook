@@ -25,6 +25,23 @@ pixi run build-testdata           # rebuild the tarball from the local sources (
 `release-check` exits nonzero when a test or an invariant fails (lift equals a full remap,
 qc flags the prophage on ONT and HiFi, `fish --bait` recall); the diff against
 `testdata/expected/` is informational only. `--no-cargo-test` skips the cargo tests (~12 s then).
+
+## Publishing a release
+
+Releases are built and published from a local checkout (no CI). Bump `version` in `Cargo.toml`,
+rename `## [Unreleased]` in `CHANGELOG.md` to `## [X.Y.Z] - YYYY-MM-DD`, run
+`pixi run release-check --accept`, commit, then:
+
+```bash
+pixi run release                  # extra arguments go to release-check, e.g. --no-cargo-test
+```
+
+`scripts/release.sh` requires `main`, a clean tree, a `## [X.Y.Z]` changelog section, no existing
+GitHub release `vX.Y.Z`, and tag `vX.Y.Z` at `HEAD` if the tag already exists. It runs
+`release-check`, builds the static tarball (`pixi run -e static dist`) and checks the binary's
+version, then asks for confirmation before it tags (annotated, if missing), pushes `main` and the
+tag, and runs `gh release create` with the changelog section as notes and the tarball + `.sha256`
+as assets.
 Cases, provenance and thresholds: [testdata/README.md](https://github.com/Abrinca/cramhook/blob/main/testdata/README.md).
 
 ## Tests
