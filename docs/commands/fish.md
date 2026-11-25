@@ -8,7 +8,8 @@ reads only. `fish` selects reads only; the reassembly is up to the caller.
 cramhook fish --in old.cram --ref asm.fa --out-prefix P [--threads N] [--linear c1,c2] \
   [--findings P.findings.bed] [--haplotypes P.haplotypes.tsv] \
   [--scope findings|genome] [--min-tier yellow|orange|red] [--finding-pad 1000] \
-  [--no-unmapped] [--no-clips] [--no-hairpins] [--no-indels] [--no-linked] \
+  [--no-unmapped] [--no-clips] [--no-hairpins] [--keep-concatemers] [--no-tandems] \
+  [--no-indels] [--no-linked] \
   [--locus [--locus-flank 5000]] [--bait bait.fa] [--bait-min-input-mb MB] \
   [--bait-records any|primary] \
   [--clip-min-len 50] [--circ-end-tol 100] [--indel-min-len 50] [--indel-merge-gap 50] [--indel-piece-min 10] \
@@ -19,6 +20,8 @@ cramhook fish --in old.cram --ref asm.fa --out-prefix P [--threads N] [--linear 
 |------|---------|---------|
 | `--linear c1,c2` | none | contigs treated as linear, overriding a FASTA `circular=`/`topology=` header; otherwise the FASTA header decides (`circular=true`/`topology=circular` or `circular=false`/`topology=linear`), and absent or conflicting headers default to circular |
 | `--no-hairpins` | off | do not emit `hairpin` events (and do not fall back to `clip` for them, so a read selected only because of a hairpin is not selected; `hairpin_detected` in `P.fish.json` is still counted whenever clips are enabled and in scope) |
+| `--keep-concatemers` | off | also select circular concatemers (reason `concatemer`); by default the assembly explains them, so they are counted and listed in `P.structure.tsv` but not selected; see [Concatemers and tandems](#concatemers-and-tandems) |
+| `--no-tandems` | off | do not select `tandem` reads (no fallback to `clip`; `tandem_detected` still counts them) |
 | `--circ-end-tol BP` | `100` | circular contigs: a clip stopping within `BP` of a contig end is an origin crossing (skipped) when `SA` has a same-contig, same-strand segment within `BP` of the opposite end (`0` = exact ends only; capped at half the contig length; the partner is read from `SA` and not checked to be a counted record or to cover the clipped bases) |
 | `--clip-cap N` | `0` (off) | keep at most `N` clip-selected reads per bin of `--clip-bin` reference bp; see [Capping clip reads](#capping-clip-reads) |
 | `--clip-bin BP` | `2000` | bin size for `--clip-cap`; `0` is an error (`--clip-bin must be positive`) |
@@ -36,12 +39,14 @@ of its counted records qualifies for any enabled category:
 | `unmapped` | it has an unmapped record (0x4), placed or unplaced | `.` |
 | `clip` | a terminal soft clip ≥ `--clip-min-len` (not converted to `hairpin`); on a **circular** contig a clip at an exact contig end — or within `--circ-end-tol` bp with a same-contig, same-strand `SA` segment within `--circ-end-tol` bp of the opposite end — is an origin crossing (skipped), on linear contigs (`--linear` or a `circular=false`/`topology=linear` FASTA header; absent/conflicting headers default to circular) it counts | `side=left;len=N` / `side=right;len=N` |
 | `hairpin` | a qualifying terminal clip (≥ `--clip-min-len`, in scope, not an origin crossing) is paired with an opposite-strand `SA` entry on the same contig whose reference overlap is ≥ 50 % of the shorter span, whose original-orientation query interval is adjacent to the record's (\|gap or overlap\| ≤ max(200, 0.02 × read length)) with each arm ≥ 20 % of the read length and ≥ `--clip-min-len`, and whose arm covers the clipped read region leaving residual < `--clip-min-len`. Any pair of counted records qualifies (primary/supplementary or supplementary/supplementary); the partner is taken from the record's `SA` tag (not checked to be a counted record) | `arm1=q<s>-<e>,r<s>-<e>,<strand>;arm2=q<s>-<e>,r<s>-<e>,<strand>` (`arm1` earlier in the read; `q` = 0-based half-open original-orientation query coords, `r` = 0-based half-open reference coords) |
+| `concatemer` | with `--keep-concatemers`: a clip is covered by the read's circular-concatemer chain (see below) | `period=P;units=U` |
+| `tandem` | a clip is covered by the read's tandem chain, unless `--no-tandems` (see below) | `period=P;units=U` |
 | `large_ins` / `large_del` | a merged large indel (`--indel-merge-gap`, `--indel-piece-min`) ≥ `--indel-min-len` | `len=N;at=P` |
 | `linked` | the read is listed in `--haplotypes` for a group whose span overlaps a finding of tier ≥ `--min-tier` (findings scope) or any group (genome scope) | `group=N` |
 | `locus` | any counted record overlaps a finding (tier ≥ `--min-tier`) ± `--locus-flank` | `.` |
 | `bait` | with `--bait`: a full remap to assembly + bait places one of the read's counted records on a bait contig (see below) | `contig=<bait>;mapq=<MAPQ>;s1=<s1>;s2=<s2>;record=primary\|supplementary` |
 
-Scope `findings` (the default when `--findings` is given) counts `clip`/`hairpin`/`large_*` only when
+Scope `findings` (the default when `--findings` is given) counts `clip`/`hairpin`/`concatemer`/`tandem`/`large_*` only when
 the event position (clip position, indel start) is within a finding of tier ≥ `--min-tier` ±
 `--finding-pad`; scope `genome` counts them anywhere and `unmapped` is genome-wide in both.
 When a hairpin partner leaves a residual ≥ `--clip-min-len` in the clipped region, or on the read's
@@ -55,6 +60,60 @@ selection is on by default and requires `--haplotypes` (if no file is given it i
 and recorded in the JSON; `--no-linked` turns it off). Reads that merely end at a position, or agree
 with the assembly, are not selected; site-only and depth-only findings contribute only through
 `--locus`.
+
+## Concatemers and tandems
+
+A read whose own segments (the record and its `SA` entries) show the same stretch of reference
+repeated, back to back, is not a chimera: it is a read of a circular molecule, or of a tandem
+repeat. Segments of >= 500 bp are ordered by their original-orientation query interval, and two
+consecutive segments on the same contig and strand are *back to back* when their query gap or
+overlap is <= max(200 bp, 2 % of the read length). In the read direction, let `d` be the next
+segment's reference start minus the previous segment's reference end.
+
+- **`concatemer`** (circular contigs only): `d` is 0 modulo the contig length `L` (within the
+  same tolerance, capped at `L/4`): the read goes round the circle, e.g. `[x, L)` then `[0, y)`, or
+  a full circle `[0, L)` followed by `[0, L)`. `period` = `L`, `units` = the summed aligned query
+  length of the chain / `L`; called at **units >= 1.2**. Below that it is a plain origin crossing
+  (skipped, as before). It is not selected by default because the assembly explains it; use
+  `--keep-concatemers` to select it.
+- **`tandem`**: `d <= -1000` (a back jump `J` >= 1 kb; on a circular contig `d` is first reduced
+  modulo `L` into (-L/2, L/2], so an origin crossing is never a tandem and the jump must be
+  `J < L/2` after the reduction). `period` = the median `J` of the chain,
+  `units` = the chain's aligned query length / `period`; called at **units >= 1.2**. The assembly
+  does not explain it (a collapsed tandem repeat, an excised circle, a duplicated prophage), so it
+  is **selected by default**; `--no-tandems` drops it. Segments that are far apart in the read
+  (an IS pair or an rRNA operon: same strand, back jump, unaligned query between them) are not
+  back to back and give no call.
+- **Precedence**: `hairpin` (opposite strands) > `concatemer` > `tandem` > the origin-crossing
+  skip; a read has one structure, listed in `P.structure.tsv`. The label is a property of the
+  read: hairpin geometry decides it whatever `--no-clips`, `--scope` and `--no-hairpins` say.
+  Those flags only gate *selection*, so `P.structure.tsv` also lists hairpin reads that are out of
+  scope or run under `--no-clips` / `--no-hairpins` with `selected = no`, whereas `hairpin_detected`
+  keeps its 0.1.2 meaning (clips enabled, hairpin in scope) and can therefore be smaller than the
+  number of `hairpin` rows. A hairpin read has no `concatemer` / `tandem` events: the clips they
+  replaced revert to what they would have been without structure detection (`clip` events if
+  clips are on and the clip is in scope, origin-crossing skips).
+- **Only the best call converts clips.** A read can hold several chains (e.g. on two contigs);
+  the best call (concatemer before tandem, then most units) is the read's structure and the only
+  one that converts clips. Clips of a second chain stay `clip`.
+- **Clips.** A clip becomes a `concatemer` / `tandem` event when the read's chain (which must
+  contain the clipped record) covers the clipped read region, leaving a residual < `--clip-min-len`;
+  this is checked after the hairpin rule and before the origin-crossing skip (a circular
+  concatemer's clips all sit at the contig ends). A clip with a real residual stays `clip` (or an
+  origin crossing), so such a read keeps its `clip` row. Like hairpins, a suppressed `concatemer` /
+  `tandem` (default / `--no-tandems`) does not fall back to `clip`. Both are selected through
+  clips, so `--no-clips` selects neither (detection, the counts and `P.structure.tsv` stay).
+- **`--clip-cap`.** `concatemer` and `tandem` rows are never thinned and never consume cap slots.
+- **Per-contig statistics.** `P.fish.json` `contigs[]` reports `multimer` (circular contigs up to
+  50 kb: how many reads carry 1, 2, 3, 4+ units of the contig), `concatemer_reads` (reads with a
+  circular-concatemer call on the contig) and `origin_crossing_reads` (reads with an
+  origin-crossing clip on the contig that is not part of a concatemer / tandem chain: evidence that
+  it is circular). The last two do not depend on `--no-clips`, `--scope` or the selection flags; see
+  [output-format.md](../reference/output-formats.md#pfishjson).
+
+Hidden thresholds (recorded in `params`): `--concatemer-min-segment` (500), `--concatemer-min-units`
+(1.2), `--tandem-min-period` (1000), `--chain-max-gap` (200), `--chain-max-gap-frac` (0.02),
+`--concatemer-max-contig` (50000).
 
 ## Capping clip reads
 
@@ -73,7 +132,7 @@ step wants more depth, and use `--clip-min-len` (instead) when the noise is unif
 hotspot-driven.
 
 - **Eligibility.** Only a read whose *sole* reason is `clip` can be dropped. A read selected by
-  `hairpin`, `unmapped`, `large_ins`, `large_del`, `linked`, `locus` or `bait` is never dropped, even
+  `hairpin`, `concatemer`, `tandem`, `unmapped`, `large_ins`, `large_del`, `linked`, `locus` or `bait` is never dropped, even
   when it also has a `clip` event (and `hairpin` rows do not consume cap slots). Every clip-only read
   is eligible, whatever the length of its clip.
 - **Binning.** A read is placed by its best clip (the largest, then the smallest position): bin =
@@ -130,15 +189,16 @@ always records `mode` and the number of supplementary-only reads; an absent flag
 |---|---|
 | `P.fastq.gz` | the selected reads (BGZF), each once, in original orientation, sorted by read name |
 | `P.fish.tsv` | one row per (read, reason, finding) |
+| `P.structure.tsv` | one row per hairpin, concatemer or tandem read, selected or not (`read, length, structure, contig, strand, period, units, arms, selected`); always written (header only when empty) |
 | `P.lengths.tsv` | log-spaced read-length histogram (`bin_lo`, `reads`, `bp`) across every counted read (primary + unmapped); always written (header only when empty) |
-| `P.fish.json` | selected reads and bp per reason and in total, reads dropped by `--clip-cap`, `hairpin_detected` counts, `origin_crossing_skipped` counts, input record counts, per-contig circularity (`contigs`), categories and thresholds, timing; a `bait` block with `--bait` |
+| `P.fish.json` | selected reads and bp per reason and in total, reads dropped by `--clip-cap`, `hairpin_detected`, `concatemer_detected`, `tandem_detected` and `origin_crossing_skipped` counts, input record counts, per-contig circularity, `origin_crossing_reads` and `multimer` statistics (`contigs`), categories and thresholds, timing; a `bait` block with `--bait` |
 | `P.bait_ref.fa` (with `--bait`) | assembly + bait contigs, indexed |
 | `P.bait.cram` (with `--bait`) | the bait lift, with index |
 
 The TSVs and the decompressed FASTQ are byte-identical across thread counts (only the JSON's timing
 differs). Columns and keys: [output-format.md](../reference/output-formats.md#fish). An empty input
 (0 records) emits `warning: <in>: input has no records` to stderr and writes empty `P.fastq.gz`,
-header-only `P.fish.tsv` and `P.lengths.tsv`, and zero counts in `P.fish.json`.
+header-only `P.fish.tsv`, `P.structure.tsv` and `P.lengths.tsv`, and zero counts in `P.fish.json`.
 
 ## Demo: recovering a phage missing from an assembly
 

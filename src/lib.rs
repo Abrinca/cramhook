@@ -30,7 +30,8 @@ pub use translate::{Fallback, Params, Reason, Stats, TranslateConfig, translate}
 pub use lift::{LiftOptions, lift, lift_with_progress};
 pub use progress::Progress;
 pub use fish::{
-    BaitContig, BaitRecords, BaitSummary, CapSummary, FishContig, FishParams, FishScope,
-    FishSummary, FishTier, HairpinDetected, OriginCrossingSkipped, run_fish,
+    BaitContig, BaitRecords, BaitSummary, CapSummary, ContigMultimer, FishContig, FishParams,
+    FishScope, FishSummary, FishTier, HairpinDetected, OriginCrossingSkipped, StructureDetected,
+    run_fish,
 };
 pub use qc::{QcParams, run_qc};

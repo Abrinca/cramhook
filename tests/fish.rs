@@ -3079,9 +3079,12 @@ fn fish_header_circularity_and_linear_override() {
     assert_eq!(
         j_hdr["contigs"],
         serde_json::json!([
-            {"name": "c_lin", "length_bp": l, "circular": false, "circular_by": "header"},
-            {"name": "c_circ", "length_bp": l, "circular": true, "circular_by": "header"},
-            {"name": "c_def", "length_bp": l, "circular": true, "circular_by": "default"},
+            {"name": "c_lin", "length_bp": l, "circular": false, "circular_by": "header",
+             "origin_crossing_reads": 0, "concatemer_reads": 0, "multimer": null},
+            {"name": "c_circ", "length_bp": l, "circular": true, "circular_by": "header",
+             "origin_crossing_reads": 2, "concatemer_reads": 0, "multimer": {"reads": 2, "reads_monomer": 2, "reads_dimer": 0, "reads_trimer": 0, "reads_4plus_units": 0, "multimer_bp_frac": 0.0, "frac_multimer_given_long": null}},
+            {"name": "c_def", "length_bp": l, "circular": true, "circular_by": "default",
+             "origin_crossing_reads": 2, "concatemer_reads": 0, "multimer": {"reads": 2, "reads_monomer": 2, "reads_dimer": 0, "reads_trimer": 0, "reads_4plus_units": 0, "multimer_bp_frac": 0.0, "frac_multimer_given_long": null}},
         ]),
         "{j_hdr}"
     );
@@ -3105,10 +3108,704 @@ fn fish_header_circularity_and_linear_override() {
     assert_eq!(
         j_flag["contigs"],
         serde_json::json!([
-            {"name": "c_lin", "length_bp": l, "circular": false, "circular_by": "header"},
-            {"name": "c_circ", "length_bp": l, "circular": false, "circular_by": "flag"},
-            {"name": "c_def", "length_bp": l, "circular": true, "circular_by": "default"},
+            {"name": "c_lin", "length_bp": l, "circular": false, "circular_by": "header",
+             "origin_crossing_reads": 0, "concatemer_reads": 0, "multimer": null},
+            {"name": "c_circ", "length_bp": l, "circular": false, "circular_by": "flag",
+             "origin_crossing_reads": 0, "concatemer_reads": 0, "multimer": null},
+            {"name": "c_def", "length_bp": l, "circular": true, "circular_by": "default",
+             "origin_crossing_reads": 2, "concatemer_reads": 0, "multimer": {"reads": 2, "reads_monomer": 2, "reads_dimer": 0, "reads_trimer": 0, "reads_4plus_units": 0, "multimer_bp_frac": 0.0, "frac_multimer_given_long": null}},
         ]),
         "{j_flag}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// concatemer / tandem structures
+
+/// `P.structure.tsv` rows (no header) as field vectors.
+fn structure_rows(prefix: &Path) -> Vec<Vec<String>> {
+    let text = std::fs::read_to_string(prefix.with_extension("structure.tsv")).unwrap();
+    assert_eq!(
+        text.lines().next().unwrap(),
+        "read\tlength\tstructure\tcontig\tstrand\tperiod\tunits\tarms\tselected"
+    );
+    text.lines().skip(1).map(|l| l.split('\t').map(|s| s.to_string()).collect()).collect()
+}
+
+/// A forward read made of consecutive reference pieces `[a, b)` of `refseq`
+/// (original orientation `+`), as one record per piece: the first is primary,
+/// the others supplementary. `sa_of` entries are 1-based `chr,pos,+,CIGAR,60,0;`.
+fn chain_records(name: &str, refseq: &[u8], pieces: &[(usize, usize)], tail: &[u8]) -> Vec<RawRec> {
+    chain_records_dir(name, refseq, pieces, tail, false)
+}
+
+/// Like `chain_records`; with `rev` the read is the reverse complement, so every
+/// record is a reverse-strand record (flag 0x10, `SA` strand `-`) carrying the
+/// forward-built sequence.
+fn chain_records_dir(
+    name: &str,
+    refseq: &[u8],
+    pieces: &[(usize, usize)],
+    tail: &[u8],
+    rev: bool,
+) -> Vec<RawRec> {
+    let sg = if rev { '-' } else { '+' };
+    let mut orig: Vec<u8> = Vec::new();
+    let mut q: Vec<(usize, usize)> = Vec::new();
+    for &(a, b) in pieces {
+        q.push((orig.len(), orig.len() + (b - a)));
+        orig.extend_from_slice(&refseq[a..b]);
+    }
+    orig.extend_from_slice(tail);
+    let n = orig.len();
+    let cig = |i: usize| -> Vec<Cigar> {
+        let (qs, qe) = q[i];
+        let mut c = Vec::new();
+        if qs > 0 {
+            c.push(Cigar::SoftClip(qs as u32));
+        }
+        c.push(Cigar::Match((qe - qs) as u32));
+        if n - qe > 0 {
+            c.push(Cigar::SoftClip((n - qe) as u32));
+        }
+        c
+    };
+    let cigar_str = |i: usize| -> String {
+        let (qs, qe) = q[i];
+        let mut s = String::new();
+        if qs > 0 {
+            s.push_str(&format!("{qs}S"));
+        }
+        s.push_str(&format!("{}M", qe - qs));
+        if n - qe > 0 {
+            s.push_str(&format!("{}S", n - qe));
+        }
+        s
+    };
+    (0..pieces.len())
+        .map(|i| {
+            let sa: String = (0..pieces.len())
+                .filter(|&j| j != i)
+                .map(|j| format!("chr,{},{sg},{},60,0;", pieces[j].0 + 1, cigar_str(j)))
+                .collect();
+            RawRec {
+                name: name.to_string(),
+                pos: pieces[i].0 as i64,
+                cigar: cig(i),
+                seq: orig.clone(),
+                flags: (if i == 0 { 0 } else { 0x800 }) | (if rev { 0x10 } else { 0 }),
+                sa: Some(sa),
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn fish_concatemer_not_selected_by_default_and_keep_flag() {
+    let l = 3_000usize;
+    let r = random_seq(l, 1301);
+    // 1.5 units of the circular contig: [0,3000) + [0,1500).
+    let recs = chain_records("cat", &r, &[(0, 3000), (0, 1500)], &[]);
+    let base = FishParams { clip_min_len: 150, ..params(1) };
+
+    let p = run("cat_default", &r, &recs, &base);
+    let rows = tsv(&p);
+    assert!(rows.is_empty(), "{rows:?}");
+    let j = json(&p);
+    assert_eq!(j["reads"]["reads"], 0, "{j}");
+    assert_eq!(j["concatemer_detected"]["reads"], 1, "{j}");
+    assert_eq!(j["tandem_detected"]["reads"], 0, "{j}");
+    // The concatemer's origin clips are a concatemer, not skipped origin crossings.
+    assert_eq!(j["origin_crossing_skipped"]["clips"], 0, "{j}");
+    assert_eq!(j["params"]["keep_concatemers"], false, "{j}");
+    assert_eq!(j["params"]["tandems"], true, "{j}");
+    assert_eq!(j["params"]["concatemer_min_segment"], 500, "{j}");
+    assert_eq!(j["params"]["concatemer_min_units"], 1.2, "{j}");
+    assert_eq!(j["params"]["tandem_min_period"], 1000, "{j}");
+    assert_eq!(j["params"]["chain_max_gap"], 200, "{j}");
+    assert_eq!(j["params"]["chain_max_gap_frac"], 0.02, "{j}");
+    assert_eq!(j["params"]["concatemer_max_contig"], 50000, "{j}");
+    let s = structure_rows(&p);
+    assert_eq!(
+        s,
+        vec![vec!["cat", "4500", "concatemer", "chr", "+", "3000", "1.50", ".", "no"]],
+        "{s:?}"
+    );
+
+    let p = run("cat_keep", &r, &recs, &FishParams { keep_concatemers: true, ..base.clone() });
+    let rows = tsv(&p);
+    assert_eq!(reasons_of(&rows, "concatemer"), vec!["cat".to_string()], "{rows:?}");
+    assert!(rows.iter().all(|x| x[2] == "concatemer"), "{rows:?}");
+    assert!(rows[0][8].contains("period=3000;units=1.50"), "{rows:?}");
+    let j = json(&p);
+    assert_eq!(j["reads"]["by_reason"]["concatemer"]["reads"], 1, "{j}");
+    assert_eq!(j["reads"]["by_reason"]["concatemer"]["bp"], 4500, "{j}");
+    assert_eq!(j["concatemer_detected"]["reads"], 1, "{j}");
+    assert_eq!(j["params"]["keep_concatemers"], true, "{j}");
+    assert_eq!(structure_rows(&p)[0][8], "yes");
+    // With --no-clips nothing is selected, but the structure is still listed.
+    let p = run("cat_noclips", &r, &recs, &FishParams { keep_concatemers: true, no_clips: true, ..base });
+    assert!(tsv(&p).is_empty());
+    assert_eq!(structure_rows(&p)[0][2], "concatemer");
+    assert_eq!(structure_rows(&p)[0][8], "no");
+}
+
+#[test]
+fn fish_concatemer_with_real_residual_clip_keeps_clip() {
+    let l = 3_000usize;
+    let r = random_seq(l, 1311);
+    let tail = random_seq(400, 1312);
+    let recs = chain_records("catclip", &r, &[(0, 3000), (0, 1500)], &tail);
+    let base = FishParams { clip_min_len: 150, ..params(1) };
+
+    let p = run("catclip_default", &r, &recs, &base);
+    let rows = tsv(&p);
+    assert_eq!(reasons_of(&rows, "clip"), vec!["catclip".to_string()], "{rows:?}");
+    assert!(reasons_of(&rows, "concatemer").is_empty(), "{rows:?}");
+    let j = json(&p);
+    assert_eq!(j["concatemer_detected"]["reads"], 1, "{j}");
+    let s = structure_rows(&p);
+    assert_eq!(s[0][8], "no", "selected means selected as a concatemer: {s:?}");
+
+    let p = run("catclip_keep", &r, &recs, &FishParams { keep_concatemers: true, ..base });
+    let rows = tsv(&p);
+    assert_eq!(reasons_of(&rows, "clip"), vec!["catclip".to_string()], "{rows:?}");
+    assert_eq!(reasons_of(&rows, "concatemer"), vec!["catclip".to_string()], "{rows:?}");
+    let j = json(&p);
+    assert_eq!(j["reads"]["reads"], 1, "{j}");
+    assert_eq!(structure_rows(&p)[0][8], "yes");
+}
+
+#[test]
+fn fish_tandem_selected_by_default_no_tandems_drops() {
+    let l = 20_000usize;
+    let r = random_seq(l, 1321);
+    // Back jump 2370: [1000,4000) then [1630,4630).
+    let recs = chain_records("tan", &r, &[(1000, 4000), (1630, 4630)], &[]);
+    for (tag, linear) in [("circ", vec![]), ("lin", vec!["chr".to_string()])] {
+        let base = FishParams { clip_min_len: 150, linear, ..params(1) };
+        let p = run(&format!("tan_{tag}"), &r, &recs, &base);
+        let rows = tsv(&p);
+        assert_eq!(reasons_of(&rows, "tandem"), vec!["tan".to_string()], "{rows:?}");
+        assert!(rows.iter().all(|x| x[2] == "tandem"), "{rows:?}");
+        assert!(rows[0][8].contains("period=2370;units=2.53"), "{rows:?}");
+        let j = json(&p);
+        assert_eq!(j["reads"]["by_reason"]["tandem"]["reads"], 1, "{j}");
+        assert_eq!(j["tandem_detected"]["reads"], 1, "{j}");
+        assert_eq!(j["concatemer_detected"]["reads"], 0, "{j}");
+        assert_eq!(
+            structure_rows(&p),
+            vec![vec!["tan", "6000", "tandem", "chr", "+", "2370", "2.53", ".", "yes"]]
+        );
+
+        let p = run(&format!("tan_{tag}_off"), &r, &recs, &FishParams { no_tandems: true, ..base });
+        assert!(tsv(&p).is_empty(), "no fallback to clip: {:?}", tsv(&p));
+        let j = json(&p);
+        assert_eq!(j["tandem_detected"]["reads"], 1, "{j}");
+        assert_eq!(j["params"]["tandems"], false, "{j}");
+        assert_eq!(structure_rows(&p)[0][8], "no");
+    }
+}
+
+#[test]
+fn fish_concatemer_and_tandem_ignore_clip_cap() {
+    let l = 20_000usize;
+    let r = random_seq(l, 1331);
+    let mut recs: Vec<RawRec> = Vec::new();
+    for i in 0..3 {
+        recs.extend(chain_records(&format!("t{i}"), &r, &[(1000, 4000), (1630, 4630)], &[]));
+    }
+    // Plain clip reads in one bin (right clip 300 bp at ~ 9000).
+    for i in 0..3 {
+        let mut seq = r[8000..9000].to_vec();
+        seq.extend(random_seq(300, 1340 + i));
+        recs.push(RawRec {
+            name: format!("c{i}"),
+            pos: 8000 + i as i64,
+            cigar: vec![Cigar::Match(1000), Cigar::SoftClip(300)],
+            seq,
+            flags: 0,
+            sa: None,
+        });
+    }
+    let p = run(
+        "cap_tandem",
+        &r,
+        &recs,
+        &FishParams { clip_min_len: 150, clip_cap: 1, clip_bin: 2000, ..params(1) },
+    );
+    let rows = tsv(&p);
+    assert_eq!(reasons_of(&rows, "tandem"), vec!["t0", "t1", "t2"], "{rows:?}");
+    assert_eq!(reasons_of(&rows, "clip").len(), 1, "{rows:?}");
+    let j = json(&p);
+    assert_eq!(j["cap"]["reads"], 2, "{j}");
+    assert_eq!(j["reads"]["by_reason"]["tandem"]["reads"], 3, "{j}");
+}
+
+#[test]
+fn fish_hairpin_takes_precedence_over_concatemer() {
+    let l = 3_000usize;
+    let r = random_seq(l, 1351);
+    // A [0,3000)+, B [0,1500)+ (circular continuation), C = revcomp [0,1500) (hairpin arm).
+    let mut orig = r.clone();
+    orig.extend_from_slice(&r[0..1500]);
+    orig.extend_from_slice(&revcomp(&r[0..1500]));
+    let rc = revcomp(&orig);
+    let recs = vec![
+        RawRec {
+            name: "hc".to_string(),
+            pos: 0,
+            cigar: vec![Cigar::Match(3000), Cigar::SoftClip(3000)],
+            seq: orig.clone(),
+            flags: 0,
+            sa: Some("chr,1,+,3000S1500M1500S,60,0;chr,1,-,1500M4500S,60,0;".to_string()),
+        },
+        RawRec {
+            name: "hc".to_string(),
+            pos: 0,
+            cigar: vec![Cigar::SoftClip(3000), Cigar::Match(1500), Cigar::SoftClip(1500)],
+            seq: orig.clone(),
+            flags: 0x800,
+            sa: Some("chr,1,+,3000M3000S,60,0;chr,1,-,1500M4500S,60,0;".to_string()),
+        },
+        RawRec {
+            name: "hc".to_string(),
+            pos: 0,
+            cigar: vec![Cigar::Match(1500), Cigar::SoftClip(4500)],
+            seq: rc,
+            flags: 0x10 | 0x800,
+            sa: Some("chr,1,+,3000M3000S,60,0;chr,1,+,3000S1500M1500S,60,0;".to_string()),
+        },
+    ];
+    let p = run(
+        "hairpin_precedence",
+        &r,
+        &recs,
+        &FishParams { clip_min_len: 150, keep_concatemers: true, ..params(1) },
+    );
+    let rows = tsv(&p);
+    assert_eq!(reasons_of(&rows, "hairpin"), vec!["hc".to_string()], "{rows:?}");
+    assert!(reasons_of(&rows, "concatemer").is_empty(), "{rows:?}");
+    let j = json(&p);
+    assert_eq!(j["concatemer_detected"]["reads"], 0, "{j}");
+    assert_eq!(j["hairpin_detected"]["reads"], 1, "{j}");
+    let s = structure_rows(&p);
+    assert_eq!(s.len(), 1, "{s:?}");
+    assert_eq!((s[0][0].as_str(), s[0][2].as_str(), s[0][5].as_str(), s[0][6].as_str()), ("hc", "hairpin", ".", "."));
+    assert!(s[0][7].starts_with("arm1=q"), "{s:?}");
+    assert_eq!(s[0][8], "yes");
+    // --no-hairpins: still listed, not selected.
+    let p = run(
+        "hairpin_precedence_off",
+        &r,
+        &recs,
+        &FishParams { clip_min_len: 150, keep_concatemers: true, no_hairpins: true, ..params(1) },
+    );
+    let s = structure_rows(&p);
+    assert_eq!((s[0][2].as_str(), s[0][8].as_str()), ("hairpin", "no"), "{s:?}");
+}
+
+#[test]
+fn fish_structure_tsv_contigs_and_thread_identity() {
+    let l = 12_000usize;
+    let r = random_seq(l, 1361);
+    let mut recs: Vec<RawRec> = Vec::new();
+    // concatemer: 1.5 units; tandem: jump 2370; origin crossing: 2 x 1 kb.
+    recs.extend(chain_records("c1", &r, &[(0, 12_000), (0, 6000)], &[]));
+    recs.extend(chain_records("t1", &r, &[(1000, 4000), (1630, 4630)], &[]));
+    recs.extend(chain_records("o1", &r, &[(11_000, 12_000), (0, 1000)], &[]));
+    // monomers
+    for i in 0..4 {
+        recs.push(RawRec {
+            name: format!("m{i}"),
+            pos: 5000 + 10 * i as i64,
+            cigar: vec![Cigar::Match(1000)],
+            seq: r[5000 + 10 * i..6000 + 10 * i].to_vec(),
+            flags: 0,
+            sa: None,
+        });
+    }
+    // hairpin (as in fish_hairpin_pair_selects_and_no_hairpins_suppresses)
+    let mut orig = random_seq(7, 1362);
+    orig.extend_from_slice(&r[3834..6484]);
+    orig.extend_from_slice(&revcomp(&r[3864..6441]));
+    recs.push(RawRec {
+        name: "h1".to_string(),
+        pos: 3834,
+        cigar: vec![Cigar::SoftClip(7), Cigar::Match(2650), Cigar::SoftClip(2577)],
+        seq: orig.clone(),
+        flags: 0,
+        sa: Some("chr,3865,-,2577M2657S,60,0;".to_string()),
+    });
+    recs.push(RawRec {
+        name: "h1".to_string(),
+        pos: 3864,
+        cigar: vec![Cigar::Match(2577), Cigar::SoftClip(2657)],
+        seq: revcomp(&orig),
+        flags: 0x10 | 0x800,
+        sa: Some("chr,3835,+,7S2650M2577S,60,0;".to_string()),
+    });
+    let mk = |t: usize| FishParams {
+        clip_min_len: 150,
+        chunk_size: Some(1000),
+        keep_concatemers: true,
+        concatemer_max_contig: 20_000,
+        ..params(t)
+    };
+    let p1 = run("struct_t1", &r, &recs, &mk(1));
+    let p4 = run("struct_t4", &r, &recs, &mk(4));
+    let a = std::fs::read(p1.with_extension("structure.tsv")).unwrap();
+    let b = std::fs::read(p4.with_extension("structure.tsv")).unwrap();
+    assert_eq!(a, b, "structure.tsv must be byte-identical across threads");
+
+    let s = structure_rows(&p1);
+    let names: Vec<&str> = s.iter().map(|x| x[0].as_str()).collect();
+    assert_eq!(names, vec!["c1", "h1", "t1"], "sorted, no origin crossing row: {s:?}");
+    assert_eq!(s[0], vec!["c1", "18000", "concatemer", "chr", "+", "12000", "1.50", ".", "yes"]);
+    assert_eq!((s[1][2].as_str(), s[1][3].as_str()), ("hairpin", "chr"));
+    assert_eq!(s[2], vec!["t1", "6000", "tandem", "chr", "+", "2370", "2.53", ".", "yes"]);
+
+    let strip = |p: &Path| {
+        let mut j = json(p);
+        j.as_object_mut().unwrap().remove("timing_s");
+        j
+    };
+    let (j1, j4) = (strip(&p1), strip(&p4));
+    assert_eq!(j1, j4);
+    let c = &j1["contigs"][0];
+    // Only the 1 kb + 1 kb read crosses the origin as a plain clip.
+    assert_eq!(c["origin_crossing_reads"], 1, "{j1}");
+    let m = &c["multimer"];
+    // reads with a primary on chr: c1, t1, o1, h1, m0..m3 = 8; c1 is a dimer (1.5 units).
+    assert_eq!(m["reads"], 8, "{j1}");
+    assert_eq!(m["reads_dimer"], 1, "{j1}");
+    assert_eq!(m["reads_monomer"], 7, "{j1}");
+    assert_eq!(m["reads_trimer"], 0, "{j1}");
+    assert_eq!(m["reads_4plus_units"], 0, "{j1}");
+    assert!(m["frac_multimer_given_long"].is_null(), "{j1}");
+    // 18000 multimer bp of 18000 + 6000 + 2000 + 5234 + 4000 = 35234 bp, 4 decimals.
+    assert_eq!(m["multimer_bp_frac"].as_f64().unwrap(), 0.5109, "{j1}");
+    assert_eq!(j1["concatemer_detected"]["reads"], 1);
+    assert_eq!(j1["tandem_detected"]["reads"], 1);
+
+    // Default --concatemer-max-contig (50 kb) keeps the object; 5 kb drops it.
+    let p = run("struct_maxcontig", &r, &recs, &FishParams { concatemer_max_contig: 5000, ..mk(1) });
+    assert!(json(&p)["contigs"][0]["multimer"].is_null());
+    // A linear contig reports origin_crossing_reads 0 and no multimer.
+    let p = run("struct_linear", &r, &recs, &FishParams { linear: vec!["chr".to_string()], ..mk(1) });
+    let c = &json(&p)["contigs"][0];
+    assert_eq!(c["origin_crossing_reads"], 0);
+    assert!(c["multimer"].is_null());
+    // Empty structure table still has its header.
+    let p = run("struct_empty", &r, &recs[7..8], &mk(1));
+    assert!(structure_rows(&p).is_empty());
+}
+
+/// A findings BED with the given `(start, end, id)` intervals on `chr` (tier yellow).
+fn write_bed(dir: &Path, ivs: &[(u64, u64, u32)]) -> PathBuf {
+    let p = dir.join("s.findings.bed");
+    let mut text = String::from("#contig\tstart\tend\tlabel\tscore\ttier\tlikely\textra\n");
+    for (s, e, id) in ivs {
+        text.push_str(&format!("chr\t{s}\t{e}\tfinding_{id}\t1\tyellow\tmisjoin\tevidence=clip\n"));
+    }
+    std::fs::write(&p, text).unwrap();
+    p
+}
+
+#[test]
+fn fish_reverse_strand_concatemer_and_tandem() {
+    let r3 = random_seq(3_000, 1401);
+    let cat = chain_records_dir("cat", &r3, &[(0, 3000), (0, 1500)], &[], true);
+    let p = run(
+        "rev_cat",
+        &r3,
+        &cat,
+        &FishParams { clip_min_len: 150, keep_concatemers: true, ..params(1) },
+    );
+    assert_eq!(
+        structure_rows(&p),
+        vec![vec!["cat", "4500", "concatemer", "chr", "-", "3000", "1.50", ".", "yes"]]
+    );
+    assert_eq!(reasons_of(&tsv(&p), "concatemer"), vec!["cat".to_string()]);
+
+    let r = random_seq(20_000, 1402);
+    let tan = chain_records_dir("tan", &r, &[(1000, 4000), (1630, 4630)], &[], true);
+    for linear in [vec![], vec!["chr".to_string()]] {
+        let p = run("rev_tan", &r, &tan, &FishParams { clip_min_len: 150, linear, ..params(1) });
+        assert_eq!(
+            structure_rows(&p),
+            vec![vec!["tan", "6000", "tandem", "chr", "-", "2370", "2.53", ".", "yes"]]
+        );
+        assert_eq!(reasons_of(&tsv(&p), "tandem"), vec!["tan".to_string()]);
+    }
+}
+
+#[test]
+fn fish_multiple_origin_crossings_and_multimer_block() {
+    let l = 3_000usize;
+    let r = random_seq(l, 1411);
+    let mut recs = chain_records("dimer", &r, &[(0, 3000), (0, 1500)], &[]); // 1.5 units
+    recs.extend(chain_records("trimer", &r, &[(0, 3000), (0, 3000), (0, 1500)], &[])); // 2.5 units
+    recs.extend(chain_records("cross", &r, &[(2000, 3000), (0, 1000)], &[])); // a plain crossing
+    recs.push(RawRec {
+        name: "mono".to_string(),
+        pos: 100,
+        cigar: vec![Cigar::Match(1000)],
+        seq: r[100..1100].to_vec(),
+        flags: 0,
+        sa: None,
+    });
+    let base = FishParams { clip_min_len: 150, keep_concatemers: true, ..params(1) };
+    for no_clips in [false, true] {
+        let p = run(&format!("multimer_{no_clips}"), &r, &recs, &FishParams { no_clips, ..base.clone() });
+        let j = json(&p);
+        let c = &j["contigs"][0];
+        let m = &c["multimer"];
+        assert_eq!(m["reads"], 4, "{j}");
+        assert_eq!((m["reads_monomer"].as_u64(), m["reads_dimer"].as_u64()), (Some(2), Some(1)), "{j}");
+        assert_eq!((m["reads_trimer"].as_u64(), m["reads_4plus_units"].as_u64()), (Some(1), Some(0)), "{j}");
+        // Evidence and calls do not depend on --no-clips.
+        assert_eq!(c["origin_crossing_reads"], 1, "only the plain crossing: {j}");
+        assert_eq!(c["concatemer_reads"], 2, "{j}");
+        assert_eq!(j["concatemer_detected"]["reads"], 2, "{j}");
+        let names: Vec<String> = structure_rows(&p).iter().map(|x| x[0].clone()).collect();
+        assert_eq!(names, vec!["dimer", "trimer"]);
+        if !no_clips {
+            // The trimer crosses the origin twice; all its clips are concatemer events.
+            assert_eq!(reasons_of(&tsv(&p), "concatemer"), vec!["dimer", "trimer"]);
+            assert_eq!(j["origin_crossing_skipped"]["reads"], 1, "{j}");
+        } else {
+            assert!(tsv(&p).is_empty());
+        }
+    }
+}
+
+#[test]
+fn fish_read_with_chains_on_two_contigs_converts_only_the_best() {
+    let a = random_seq(3_000, 1421);
+    let b = random_seq(20_000, 1422);
+    let mut orig = a.clone();
+    orig.extend_from_slice(&a[0..1500]);
+    orig.extend_from_slice(&b[1000..4000]);
+    orig.extend_from_slice(&b[1630..4630]);
+    assert_eq!(orig.len(), 10_500);
+    // (tid, pos, cigar, 1-based SA description)
+    let segs: [(i32, i64, &str, usize, usize); 4] = [
+        (0, 0, "a", 0, 3000),
+        (0, 0, "a", 3000, 4500),
+        (1, 1000, "b", 4500, 7500),
+        (1, 1630, "b", 7500, 10_500),
+    ];
+    let cig = |qs: usize, qe: usize| {
+        let mut v = Vec::new();
+        let mut s = String::new();
+        if qs > 0 {
+            v.push(Cigar::SoftClip(qs as u32));
+            s.push_str(&format!("{qs}S"));
+        }
+        v.push(Cigar::Match((qe - qs) as u32));
+        s.push_str(&format!("{}M", qe - qs));
+        if qe < 10_500 {
+            v.push(Cigar::SoftClip((10_500 - qe) as u32));
+            s.push_str(&format!("{}S", 10_500 - qe));
+        }
+        (v, s)
+    };
+    let dir = workdir("two_contigs");
+    let contigs = vec![("a".to_string(), a.clone()), ("b".to_string(), b.clone())];
+    let fa = write_ref_multi(&dir, &contigs);
+    let mut header = Header::new();
+    header.push_record(HeaderRecord::new(b"HD").push_tag(b"VN", "1.6").push_tag(b"SO", "coordinate"));
+    for (n, seq) in &contigs {
+        header.push_record(HeaderRecord::new(b"SQ").push_tag(b"SN", n).push_tag(b"LN", seq.len()));
+    }
+    let bam = dir.join("reads.bam");
+    let mut w = Writer::from_path(&bam, &header, Format::Bam).unwrap();
+    for (i, &(tid, pos, _, qs, qe)) in segs.iter().enumerate() {
+        let sa: String = segs
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .map(|(_, &(t, p, n, s2, e2))| {
+                let _ = t;
+                format!("{n},{},+,{},60,0;", p + 1, cig(s2, e2).1)
+            })
+            .collect();
+        let mut rec = Record::new();
+        let qual = vec![30u8; orig.len()];
+        rec.set(b"two", Some(&CigarString(cig(qs, qe).0)), &orig, &qual);
+        rec.set_tid(tid);
+        rec.set_pos(pos);
+        rec.set_mapq(60);
+        rec.set_flags(if i == 0 { 0 } else { 0x800 });
+        rec.set_mtid(-1);
+        rec.set_mpos(-1);
+        rec.push_aux(b"SA", Aux::String(&sa)).unwrap();
+        w.write(&rec).unwrap();
+    }
+    drop(w);
+    bam::index::build(&bam, None, bam::index::Type::Bai, 1).unwrap();
+    let prefix = dir.join("out");
+    run_fish(&bam, &fa, &prefix, &FishParams { clip_min_len: 150, ..params(1) }).unwrap();
+
+    let j = json(&prefix);
+    // The concatemer wins; the tandem chain on b is not reported.
+    assert_eq!(j["concatemer_detected"]["reads"], 1, "{j}");
+    assert_eq!(j["tandem_detected"]["reads"], 0, "{j}");
+    assert_eq!(j["contigs"][0]["concatemer_reads"], 1, "{j}");
+    assert_eq!(j["contigs"][1]["concatemer_reads"], 0, "{j}");
+    let s = structure_rows(&prefix);
+    assert_eq!(s, vec![vec!["two", "10500", "concatemer", "a", "+", "3000", "1.50", ".", "no"]]);
+    // The clips of the second chain stay `clip`.
+    let rows = tsv(&prefix);
+    assert_eq!(reasons_of(&rows, "clip"), vec!["two".to_string()], "{rows:?}");
+    assert!(reasons_of(&rows, "tandem").is_empty(), "{rows:?}");
+    assert!(rows.iter().all(|x| x[4] == "b"), "clips come from the b records: {rows:?}");
+}
+
+#[test]
+fn fish_findings_scope_with_concatemer_and_tandem() {
+    let r = random_seq(20_000, 1431);
+    let tan = chain_records("tan", &r, &[(1000, 4000), (1630, 4630)], &[]);
+    let dir = workdir("fs_tan_f");
+    // Right clip of the first record at 3999 (finding_5); the left clip at 1630 is in none.
+    let bed = write_bed(&dir, &[(3990, 4010, 5)]);
+    let base = FishParams {
+        clip_min_len: 150,
+        findings: Some(bed),
+        finding_pad: 0,
+        ..params(1)
+    };
+    let p = run("fs_tan", &r, &tan, &base);
+    let rows = tsv(&p);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!((rows[0][2].as_str(), rows[0][3].as_str(), rows[0][5].as_str()), ("tandem", "finding_5", "3999"));
+    // A finding elsewhere: nothing selected, but the structure is still listed.
+    let bed2 = write_bed(&dir, &[(9990, 10010, 6)]);
+    let p = run("fs_tan2", &r, &tan, &FishParams { findings: Some(bed2), ..base.clone() });
+    assert!(tsv(&p).is_empty());
+    let j = json(&p);
+    assert_eq!(j["tandem_detected"]["reads"], 1, "{j}");
+    assert_eq!(structure_rows(&p)[0][8], "no");
+
+    let r3 = random_seq(3_000, 1432);
+    let cat = chain_records("cat", &r3, &[(0, 3000), (0, 1500)], &[]);
+    let dir3 = workdir("fs_cat_f");
+    let bed3 = write_bed(&dir3, &[(2990, 3000, 7)]);
+    let p = run(
+        "fs_cat",
+        &r3,
+        &cat,
+        &FishParams {
+            clip_min_len: 150,
+            keep_concatemers: true,
+            findings: Some(bed3),
+            finding_pad: 0,
+            ..params(1)
+        },
+    );
+    let rows = tsv(&p);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!((rows[0][2].as_str(), rows[0][3].as_str(), rows[0][5].as_str()), ("concatemer", "finding_7", "2999"));
+}
+
+/// A hairpin arm C- before a tandem chain A+, B+ (back jump 2370): C folds back
+/// on A (hairpin on A's left clip, at 1000); A's right clip (3999) is covered by
+/// B (a tandem clip); B's left clip (1630) keeps a real residual.
+fn hairpin_before_tandem(r: &[u8]) -> Vec<RawRec> {
+    let mut orig = revcomp(&r[3000..4630]);
+    orig.extend_from_slice(&r[1000..4000]);
+    orig.extend_from_slice(&r[1630..4630]);
+    assert_eq!(orig.len(), 7630);
+    vec![
+        RawRec {
+            name: "ht".to_string(),
+            pos: 1000,
+            cigar: vec![Cigar::SoftClip(1630), Cigar::Match(3000), Cigar::SoftClip(3000)],
+            seq: orig.clone(),
+            flags: 0,
+            sa: Some("chr,3001,-,6000S1630M,60,0;chr,1631,+,4630S3000M,60,0;".to_string()),
+        },
+        RawRec {
+            name: "ht".to_string(),
+            pos: 1630,
+            cigar: vec![Cigar::SoftClip(4630), Cigar::Match(3000)],
+            seq: orig.clone(),
+            flags: 0x800,
+            sa: Some("chr,3001,-,6000S1630M,60,0;chr,1001,+,1630S3000M3000S,60,0;".to_string()),
+        },
+        RawRec {
+            name: "ht".to_string(),
+            pos: 3000,
+            cigar: vec![Cigar::SoftClip(6000), Cigar::Match(1630)],
+            seq: revcomp(&orig),
+            flags: 0x10 | 0x800,
+            sa: Some("chr,1001,+,1630S3000M3000S,60,0;chr,1631,+,4630S3000M,60,0;".to_string()),
+        },
+    ]
+}
+
+#[test]
+fn fish_hairpin_read_keeps_the_clips_its_tandem_replaced() {
+    let r = random_seq(20_000, 1441);
+    let recs = hairpin_before_tandem(&r);
+    let dir = workdir("hp_fallback_f");
+    // finding_1 on the hairpin clip (1000), finding_2 on the tandem clip (3999).
+    let bed = write_bed(&dir, &[(990, 1010, 1), (3990, 4010, 2)]);
+    let base = FishParams {
+        clip_min_len: 150,
+        findings: Some(bed),
+        finding_pad: 0,
+        scope: Some(FishScope::Genome),
+        ..params(1)
+    };
+    // Genome scope, --no-hairpins: no hairpin rows, but the tandem's right clip
+    // falls back to a `clip` row in finding_2 (the read is not reduced to B's clip).
+    let p = run("hp_fb_nohp", &r, &recs, &FishParams { no_hairpins: true, ..base.clone() });
+    let rows = tsv(&p);
+    assert!(reasons_of(&rows, "hairpin").is_empty() && reasons_of(&rows, "tandem").is_empty(), "{rows:?}");
+    assert!(
+        rows.iter().any(|x| x[2] == "clip" && x[3] == "finding_2" && x[5] == "3999" && x[8] == "side=right;len=3000"),
+        "{rows:?}"
+    );
+    let j = json(&p);
+    assert_eq!(j["hairpin_detected"]["reads"], 1, "{j}");
+    assert_eq!(j["tandem_detected"]["reads"], 0, "hairpin label wins: {j}");
+    let s = structure_rows(&p);
+    assert_eq!((s[0][2].as_str(), s[0][8].as_str()), ("hairpin", "no"), "{s:?}");
+
+    // Findings scope: hairpin in finding_1, fallback clip in finding_2, nothing else.
+    let p = run("hp_fb_scope", &r, &recs, &FishParams { scope: Some(FishScope::Findings), ..base.clone() });
+    let rows = tsv(&p);
+    let got: Vec<(&str, &str)> = rows.iter().map(|x| (x[2].as_str(), x[3].as_str())).collect();
+    assert_eq!(got, vec![("clip", "finding_2"), ("hairpin", "finding_1")], "{rows:?}");
+    assert_eq!(structure_rows(&p)[0][8], "yes");
+
+    // Hairpin outside the finding scope: still the label (not a tandem), listed
+    // unselected, while `hairpin_detected` keeps its in-scope meaning (0).
+    let bed2 = write_bed(&dir, &[(3990, 4010, 2)]);
+    let p = run(
+        "hp_fb_scope_out",
+        &r,
+        &recs,
+        &FishParams { scope: Some(FishScope::Findings), findings: Some(bed2), ..base.clone() },
+    );
+    let rows = tsv(&p);
+    let got: Vec<(&str, &str)> = rows.iter().map(|x| (x[2].as_str(), x[3].as_str())).collect();
+    assert_eq!(got, vec![("clip", "finding_2")], "{rows:?}");
+    let j = json(&p);
+    assert_eq!(j["hairpin_detected"]["reads"], 0, "{j}");
+    assert_eq!(j["tandem_detected"]["reads"], 0, "{j}");
+    let s = structure_rows(&p);
+    assert_eq!((s[0][2].as_str(), s[0][8].as_str()), ("hairpin", "no"), "{s:?}");
+
+    // --no-clips: nothing selected; the label is still the hairpin.
+    let p = run("hp_fb_noclips", &r, &recs, &FishParams { no_clips: true, ..params(1) });
+    assert!(tsv(&p).is_empty());
+    let j = json(&p);
+    assert_eq!(j["hairpin_detected"]["reads"], 0, "{j}");
+    assert_eq!(j["tandem_detected"]["reads"], 0, "{j}");
+    assert_eq!(j["concatemer_detected"]["reads"], 0, "{j}");
+    let s = structure_rows(&p);
+    assert_eq!((s[0][2].as_str(), s[0][8].as_str()), ("hairpin", "no"), "{s:?}");
 }

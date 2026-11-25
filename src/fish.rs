@@ -17,9 +17,10 @@
 //! indel" mean the same as in `qc`.
 //!
 //! A read is selected when any of its counted records qualifies for any enabled
-//! category: `unmapped`, `clip`, `hairpin`, `large_ins` / `large_del`, `linked`
+//! category: `unmapped`, `clip`, `hairpin`, `concatemer` (`--keep-concatemers`), `tandem`,
+//! `large_ins` / `large_del`, `linked`
 //! (`--haplotypes`), `locus` (`--findings`) or `bait` (`--bait`). In the
-//! `findings` scope, `clip`, `hairpin` and `large_*` only count when the event
+//! `findings` scope, `clip`, `hairpin`, `concatemer`, `tandem` and `large_*` only count when the event
 //! position lies in a finding of tier >= `--min-tier` ± `--finding-pad`; the
 //! `genome` scope counts them anywhere. `unmapped` is genome-wide in both scopes.
 //!
@@ -70,6 +71,11 @@ const R_UNMAPPED: &str = "unmapped";
 const R_CLIP: &str = "clip";
 /// Reason name for a hairpin (fold-back) clip paired with an opposite-strand SA arm.
 const R_HAIRPIN: &str = "hairpin";
+/// Reason name for a read of a circular molecule spanning >= `concatemer_min_units` units
+/// of a circular contig (selected only with `--keep-concatemers`).
+const R_CONCATEMER: &str = "concatemer";
+/// Reason name for a tandem back-jump chain (selected unless `--no-tandems`).
+const R_TANDEM: &str = "tandem";
 /// Reason name for a merged large insertion.
 const R_INS: &str = "large_ins";
 /// Reason name for a merged large deletion.
@@ -190,6 +196,24 @@ pub struct FishParams {
     pub hairpin_max_gap_frac: f64,
     /// Hairpin: minimum query length of each arm as a fraction of read length.
     pub hairpin_min_arm_frac: f64,
+    /// Select circular concatemers (reason `concatemer`); by default the assembly
+    /// explains them and they are only counted.
+    pub keep_concatemers: bool,
+    /// Do not select `tandem` reads (and do not fall back to `clip` for them).
+    pub no_tandems: bool,
+    /// Concatemer/tandem: minimum query length of each chain segment (bp).
+    pub concatemer_min_segment: u64,
+    /// Concatemer/tandem: minimum units (aligned query length / period) to call a structure.
+    pub concatemer_min_units: f64,
+    /// Tandem: minimum back jump = minimum period (bp).
+    pub tandem_min_period: u64,
+    /// Concatemer/tandem: minimum absolute tolerance (bp) for the query gap/overlap
+    /// between consecutive back-to-back segments.
+    pub chain_max_gap: u64,
+    /// Concatemer/tandem: fractional tolerance (× read length) for that gap/overlap.
+    pub chain_max_gap_frac: f64,
+    /// Per-contig multimer statistics are reported for circular contigs up to this length (bp).
+    pub concatemer_max_contig: u64,
     /// Minimum merged large-indel size.
     pub indel_min_len: u32,
     /// Merge same-type indels separated by at most this many ref bp.
@@ -232,6 +256,14 @@ impl Default for FishParams {
             hairpin_max_gap: 200,
             hairpin_max_gap_frac: 0.02,
             hairpin_min_arm_frac: 0.2,
+            keep_concatemers: false,
+            no_tandems: false,
+            concatemer_min_segment: 500,
+            concatemer_min_units: 1.2,
+            tandem_min_period: 1000,
+            chain_max_gap: 200,
+            chain_max_gap_frac: 0.02,
+            concatemer_max_contig: 50_000,
             indel_min_len: 50,
             indel_merge_gap: 50,
             indel_piece_min: 10,
@@ -256,7 +288,7 @@ pub struct FishReads {
     pub reads: u64,
     /// Summed length of the selected reads.
     pub bp: u64,
-    /// Per reason (`unmapped`, `clip`, `hairpin`, `large_ins`, `large_del`,
+    /// Per reason (`unmapped`, `clip`, `hairpin`, `concatemer`, `tandem`, `large_ins`, `large_del`,
     /// `linked`, `locus`, `bait`); a read can appear under more than one.
     pub by_reason: BTreeMap<String, ReasonCounts>,
 }
@@ -311,6 +343,16 @@ pub struct FishParamsOut {
     pub hairpin_max_gap: u64,
     pub hairpin_max_gap_frac: f64,
     pub hairpin_min_arm_frac: f64,
+    /// `--keep-concatemers`: `concatemer` rows are selected.
+    pub keep_concatemers: bool,
+    /// `tandem` rows are selected (off with `--no-tandems`).
+    pub tandems: bool,
+    pub concatemer_min_segment: u64,
+    pub concatemer_min_units: f64,
+    pub tandem_min_period: u64,
+    pub chain_max_gap: u64,
+    pub chain_max_gap_frac: f64,
+    pub concatemer_max_contig: u64,
     pub indel_min_len: u32,
     pub indel_merge_gap: u32,
     pub indel_piece_min: u32,
@@ -354,6 +396,37 @@ pub struct OriginCrossingSkipped {
     pub clips_near_end: u64,
 }
 
+/// Reads carrying a detected structure (`concatemer` or `tandem`), independent of
+/// the selection flags. A read counts under one structure only (hairpin >
+/// concatemer > tandem).
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct StructureDetected {
+    /// Distinct reads with that structure.
+    pub reads: u64,
+}
+
+/// Per-contig multimer statistics of a small circular contig (units of the
+/// contig carried by each read with a primary alignment on it; every counted
+/// read, selected or not).
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct ContigMultimer {
+    /// Reads with a counted primary record on the contig.
+    pub reads: u64,
+    /// Reads carrying < 1.5 units (aligned query length / contig length).
+    pub reads_monomer: u64,
+    /// Reads carrying [1.5, 2.5) units.
+    pub reads_dimer: u64,
+    /// Reads carrying [2.5, 3.5) units.
+    pub reads_trimer: u64,
+    /// Reads carrying >= 3.5 units.
+    pub reads_4plus_units: u64,
+    /// Share of the reads' bp in reads carrying >= 2 units (4 decimals).
+    pub multimer_bp_frac: f64,
+    /// Share of reads >= 2 contig lengths long that carry >= 2 units (4 decimals);
+    /// `null` with fewer than 5 such reads.
+    pub frac_multimer_given_long: Option<f64>,
+}
+
 /// Per-contig circularity decision in `P.fish.json`.
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct FishContig {
@@ -362,6 +435,15 @@ pub struct FishContig {
     pub circular: bool,
     /// Which source decided `circular`: `flag`, `header` or `default`.
     pub circular_by: &'static str,
+    /// Distinct reads with >= 1 origin-crossing clip on this contig that is not
+    /// part of a concatemer / tandem chain (evidence that the contig is
+    /// circular), whatever `--no-clips` and `--scope` say; 0 on linear contigs.
+    pub origin_crossing_reads: u64,
+    /// Distinct reads with a circular-concatemer call on this contig (regardless of
+    /// `--keep-concatemers`, `--no-clips` and `--scope`).
+    pub concatemer_reads: u64,
+    /// Multimer statistics: circular contigs <= `--concatemer-max-contig`, else `null`.
+    pub multimer: Option<ContigMultimer>,
 }
 
 /// Wall times.
@@ -379,6 +461,10 @@ pub struct FishSummary {
     pub cap: CapSummary,
     /// Hairpin-converted clip events detected (independent of `--no-hairpins`).
     pub hairpin_detected: HairpinDetected,
+    /// Circular concatemer reads detected (independent of `--keep-concatemers`).
+    pub concatemer_detected: StructureDetected,
+    /// Tandem reads detected (independent of `--no-tandems`).
+    pub tandem_detected: StructureDetected,
     /// Origin-crossing clips skipped on circular contigs (not selected).
     pub origin_crossing_skipped: OriginCrossingSkipped,
     pub records: InputCounts,
@@ -820,6 +906,7 @@ struct Ctx<'a> {
     contig_len: &'a [usize],
     /// Per contig: circular (from `--linear`, FASTA header, or default circular).
     circular: &'a [bool],
+    name_to_tid: &'a HashMap<String, usize>,
     findings: Option<&'a Findings>,
     groups: Option<&'a Groups>,
 }
@@ -1140,6 +1227,343 @@ fn find_hairpin_partner(
     best.map(|(_, d)| d)
 }
 
+// ---------------------------------------------------------------------------
+// concatemer / tandem structures
+
+/// One aligned segment of a read (a counted record or an `SA` entry): 0-based
+/// half-open query interval in the original read orientation, and reference span.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Seg {
+    tid: usize,
+    strand: char,
+    qs: u64,
+    qe: u64,
+    rs: u64,
+    re: u64,
+}
+
+/// The structure of a read. `Concatemer` sorts before `Tandem` (precedence).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum StructKind {
+    Concatemer,
+    Tandem,
+}
+
+impl StructKind {
+    fn name(self) -> &'static str {
+        match self {
+            StructKind::Concatemer => R_CONCATEMER,
+            StructKind::Tandem => R_TANDEM,
+        }
+    }
+}
+
+/// A detected concatemer / tandem chain.
+#[derive(Clone, Debug)]
+struct StructCall {
+    kind: StructKind,
+    tid: usize,
+    strand: char,
+    /// Contig length (concatemer) or median back jump (tandem).
+    period: u64,
+    /// Aligned query length of the chain / period, two decimals.
+    units: f64,
+    /// The chain's segments in read order.
+    chain: Vec<Seg>,
+}
+
+/// Length of the union of intervals.
+fn union_len(ivs: &mut [(u64, u64)]) -> u64 {
+    ivs.sort_unstable();
+    let mut total = 0u64;
+    let mut cur: Option<(u64, u64)> = None;
+    for &(s, e) in ivs.iter() {
+        match &mut cur {
+            Some((_, ce)) if s <= *ce => *ce = (*ce).max(e),
+            _ => {
+                if let Some((cs, ce)) = cur {
+                    total += ce - cs;
+                }
+                cur = Some((s, e));
+            }
+        }
+    }
+    if let Some((cs, ce)) = cur {
+        total += ce - cs;
+    }
+    total
+}
+
+fn round2(x: f64) -> f64 {
+    (x * 100.0).round() / 100.0
+}
+
+/// Step between two consecutive segments of a read.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ChainStep {
+    /// Circular contig: the next segment continues the previous one going round
+    /// the circle (reference delta ~ 0 modulo the contig length).
+    Round,
+    /// The next segment starts on the reference `J` bp before the previous ends.
+    Back(u64),
+    Other,
+}
+
+/// Detect a circular concatemer or a tandem from the segments of one read.
+///
+/// Segments shorter than `concatemer_min_segment` are ignored; the rest are
+/// ordered by original query interval. Consecutive segments on the same contig
+/// and strand whose query gap/overlap is at most `max(chain_max_gap,
+/// chain_max_gap_frac * read_len)` are linked. In the read direction the
+/// reference delta `d` = next start - previous end decides the step: on a
+/// circular contig `d` is first reduced modulo the contig length `L` into
+/// `(-L/2, L/2]`, and `|d|` within the tolerance (capped at `L/4`) is a `Round`
+/// step; `d <= -tandem_min_period` is a back jump `J = -d`. A maximal run of
+/// `Round` steps is a circular concatemer when its aligned query length is at
+/// least `concatemer_min_units` contig lengths; a maximal run of back jumps is a
+/// tandem with period = the median jump and the same units rule. The best
+/// concatemer (most units) wins over any tandem.
+fn detect_structure(
+    segs: &[Seg],
+    read_len: u64,
+    circular: &[bool],
+    contig_len: &[usize],
+    p: &FishParams,
+) -> Option<StructCall> {
+    let mut v: Vec<&Seg> =
+        segs.iter().filter(|s| s.qe.saturating_sub(s.qs) >= p.concatemer_min_segment).collect();
+    if v.len() < 2 {
+        return None;
+    }
+    v.sort_by_key(|s| (s.qs, s.qe, s.tid, s.rs, s.re, s.strand));
+    v.dedup();
+    if v.len() < 2 {
+        return None;
+    }
+    let gap_limit = (p.chain_max_gap as f64).max(p.chain_max_gap_frac * read_len as f64);
+    let steps: Vec<ChainStep> = v
+        .windows(2)
+        .map(|w| {
+            let (a, b) = (w[0], w[1]);
+            if a.tid != b.tid || a.strand != b.strand || (b.qs.abs_diff(a.qe) as f64) > gap_limit {
+                return ChainStep::Other;
+            }
+            // Reference positions in the read direction.
+            let (prev_end, next_start) = if a.strand == '+' {
+                (a.re as i64, b.rs as i64)
+            } else {
+                (-(a.rs as i64), -(b.re as i64))
+            };
+            let mut d = next_start - prev_end;
+            let l = contig_len.get(a.tid).copied().unwrap_or(0) as i64;
+            if circular.get(a.tid).copied().unwrap_or(false) && l > 0 {
+                d = d.rem_euclid(l);
+                if d > l / 2 {
+                    d -= l;
+                }
+                if (d.unsigned_abs() as f64) <= gap_limit.min(l as f64 / 4.0) {
+                    return ChainStep::Round;
+                }
+            }
+            if d <= -(p.tandem_min_period as i64) {
+                ChainStep::Back((-d) as u64)
+            } else {
+                ChainStep::Other
+            }
+        })
+        .collect();
+
+    let mut best_c: Option<StructCall> = None;
+    let mut best_t: Option<StructCall> = None;
+    let mut i = 0;
+    while i < steps.len() {
+        if steps[i] == ChainStep::Other {
+            i += 1;
+            continue;
+        }
+        let round = steps[i] == ChainStep::Round;
+        let mut j = i;
+        while j < steps.len() && (steps[j] == ChainStep::Round) == round && steps[j] != ChainStep::Other {
+            j += 1;
+        }
+        // steps[i..j] link segments v[i..=j]
+        let run: Vec<&Seg> = v[i..=j].to_vec();
+        let mut ivs: Vec<(u64, u64)> = run.iter().map(|s| (s.qs, s.qe)).collect();
+        let aligned = union_len(&mut ivs) as f64;
+        let first = run[0];
+        if round {
+            let l = contig_len[first.tid] as u64;
+            let units = round2(aligned / l as f64);
+            if units + 1e-9 >= p.concatemer_min_units
+                && best_c.as_ref().is_none_or(|b| units > b.units)
+            {
+                best_c = Some(StructCall {
+                    kind: StructKind::Concatemer,
+                    tid: first.tid,
+                    strand: first.strand,
+                    period: l,
+                    units,
+                    chain: run.iter().map(|s| (*s).clone()).collect(),
+                });
+            }
+        } else {
+            let mut js: Vec<u64> = steps[i..j]
+                .iter()
+                .filter_map(|s| if let ChainStep::Back(x) = s { Some(*x) } else { None })
+                .collect();
+            js.sort_unstable();
+            let period = js[(js.len() - 1) / 2];
+            let units = round2(aligned / period as f64);
+            if units + 1e-9 >= p.concatemer_min_units
+                && best_t.as_ref().is_none_or(|b| units > b.units)
+            {
+                best_t = Some(StructCall {
+                    kind: StructKind::Tandem,
+                    tid: first.tid,
+                    strand: first.strand,
+                    period,
+                    units,
+                    chain: run.iter().map(|s| (*s).clone()).collect(),
+                });
+            }
+        }
+        i = j;
+    }
+    best_c.or(best_t)
+}
+
+/// Does the chain of `call` (which must contain record segment `r`) cover the
+/// read-interval `clip` except a residual `< clip_min`?
+fn chain_covers_clip(call: &StructCall, r: &Seg, clip: (u64, u64), clip_min: u64) -> bool {
+    if !call.chain.contains(r) {
+        return false;
+    }
+    let mut ivs: Vec<(u64, u64)> = call
+        .chain
+        .iter()
+        .map(|s| (s.qs.max(clip.0), s.qe.min(clip.1)))
+        .filter(|(a, b)| a < b)
+        .collect();
+    let covered = union_len(&mut ivs);
+    (clip.1 - clip.0).saturating_sub(covered) < clip_min
+}
+
+/// Aligned query bases of a read on `tid` on its dominant strand (union of the
+/// segments' query intervals per strand; the larger of the two).
+fn dominant_strand_bp(segs: &[Seg], tid: usize) -> u64 {
+    let mut best = 0;
+    for strand in ['+', '-'] {
+        let mut ivs: Vec<(u64, u64)> =
+            segs.iter().filter(|s| s.tid == tid && s.strand == strand).map(|s| (s.qs, s.qe)).collect();
+        best = best.max(union_len(&mut ivs));
+    }
+    best
+}
+
+/// Units of a circular contig carried by a read: aligned query length / `L`
+/// rounded half-up, at least 1 (so a read with <= 1.49 units is a monomer).
+fn multimer_units(aligned_bp: u64, contig_len: u64) -> u64 {
+    if contig_len == 0 || aligned_bp <= contig_len {
+        return 1;
+    }
+    (((aligned_bp as f64 / contig_len as f64) + 0.5).floor() as u64).max(1)
+}
+
+/// Per-contig multimer accumulators (integers only, so they merge exactly).
+#[derive(Clone, Debug, Default)]
+struct MultimerAcc {
+    reads: u64,
+    monomer: u64,
+    dimer: u64,
+    trimer: u64,
+    four_plus: u64,
+    total_bp: u64,
+    multimer_bp: u64,
+    long_reads: u64,
+    long_multimer: u64,
+}
+
+impl MultimerAcc {
+    fn add_read(&mut self, read_len: u64, aligned_bp: u64, contig_len: u64) {
+        let units = multimer_units(aligned_bp, contig_len);
+        self.reads += 1;
+        self.total_bp += read_len;
+        match units {
+            1 => self.monomer += 1,
+            2 => self.dimer += 1,
+            3 => self.trimer += 1,
+            _ => self.four_plus += 1,
+        }
+        if units >= 2 {
+            self.multimer_bp += read_len;
+        }
+        if read_len >= 2 * contig_len {
+            self.long_reads += 1;
+            if units >= 2 {
+                self.long_multimer += 1;
+            }
+        }
+    }
+
+    fn merge(&mut self, o: &MultimerAcc) {
+        self.reads += o.reads;
+        self.monomer += o.monomer;
+        self.dimer += o.dimer;
+        self.trimer += o.trimer;
+        self.four_plus += o.four_plus;
+        self.total_bp += o.total_bp;
+        self.multimer_bp += o.multimer_bp;
+        self.long_reads += o.long_reads;
+        self.long_multimer += o.long_multimer;
+    }
+
+    fn finish(&self) -> ContigMultimer {
+        let r4 = |x: f64| (x * 10_000.0).round() / 10_000.0;
+        ContigMultimer {
+            reads: self.reads,
+            reads_monomer: self.monomer,
+            reads_dimer: self.dimer,
+            reads_trimer: self.trimer,
+            reads_4plus_units: self.four_plus,
+            multimer_bp_frac: if self.total_bp > 0 {
+                r4(self.multimer_bp as f64 / self.total_bp as f64)
+            } else {
+                0.0
+            },
+            frac_multimer_given_long: (self.long_reads >= MIN_LONG_READS)
+                .then(|| r4(self.long_multimer as f64 / self.long_reads as f64)),
+        }
+    }
+}
+
+/// Fewest reads >= 2 contig lengths long needed to report `frac_multimer_given_long`.
+const MIN_LONG_READS: u64 = 5;
+
+/// A concatemer / tandem read as listed in `P.structure.tsv`.
+#[derive(Clone, Debug)]
+struct StructRec {
+    kind: StructKind,
+    read_len: u64,
+    contig: String,
+    strand: char,
+    period: u64,
+    units: f64,
+}
+
+impl StructRec {
+    /// Smaller is better: concatemer before tandem, then the most units.
+    fn key(&self) -> (StructKind, std::cmp::Reverse<u64>, &str, char, u64, u64) {
+        (
+            self.kind,
+            std::cmp::Reverse((self.units * 100.0).round() as u64),
+            self.contig.as_str(),
+            self.strand,
+            self.period,
+            self.read_len,
+        )
+    }
+}
+
 /// The record's `SA` targets as `contig:pos:strand` joined by `,`, `.` if none.
 fn sa_string(rec: &bam::Record) -> String {
     match rec.aux(b"SA") {
@@ -1222,6 +1646,19 @@ fn cigar_ref_and_query_len(cig: &[u32]) -> (usize, u64) {
     (span, qlen)
 }
 
+/// The clips of one record that a concatemer / tandem event replaced.
+struct DeferredRec {
+    read_len: u64,
+    tid: usize,
+    /// Replaced clips that were origin crossings (exact / near-end).
+    origin_exact: u64,
+    origin_near: u64,
+    /// The record already counted as origin-skipped through another clip.
+    record_skipped: bool,
+    /// The `clip` events those clips would have been (in scope, not origin).
+    clips: Vec<(&'static str, Event)>,
+}
+
 #[derive(Default)]
 struct WorkerStats {
     counts: InputCounts,
@@ -1232,6 +1669,18 @@ struct WorkerStats {
     origin_skipped_reads: HashSet<String>,
     origin_skipped_exact: u64,
     origin_skipped_near_end: u64,
+    /// Reads with >= 1 skipped origin-crossing clip, per contig.
+    origin_by_contig: HashMap<usize, HashSet<String>>,
+    /// Best hairpin-geometry event per read and the read length, whatever
+    /// `--no-clips`, `--scope` and `--no-hairpins` say (the structure label).
+    hairpin_label: HashMap<String, (Event, u64)>,
+    /// Clips replaced by a concatemer / tandem event, per read: used instead
+    /// when the read turns out to be a hairpin read.
+    deferred: HashMap<String, Vec<DeferredRec>>,
+    /// Concatemer / tandem call per read (before hairpin precedence).
+    structs: HashMap<String, StructRec>,
+    /// Multimer accumulators per circular contig <= `--concatemer-max-contig`.
+    multimer: HashMap<usize, MultimerAcc>,
 }
 
 impl WorkerStats {
@@ -1259,6 +1708,37 @@ impl WorkerStats {
         self.origin_skipped_reads.extend(other.origin_skipped_reads);
         self.origin_skipped_exact += other.origin_skipped_exact;
         self.origin_skipped_near_end += other.origin_skipped_near_end;
+        for (tid, names) in other.origin_by_contig {
+            self.origin_by_contig.entry(tid).or_default().extend(names);
+        }
+        for (name, (ev, len)) in other.hairpin_label {
+            match self.hairpin_label.get(&name) {
+                Some((old, _)) if !event_better(&ev, old) => {}
+                _ => {
+                    self.hairpin_label.insert(name, (ev, len));
+                }
+            }
+        }
+        for (name, mut v) in other.deferred {
+            self.deferred.entry(name).or_default().append(&mut v);
+        }
+        for (name, rec) in other.structs {
+            self.note_struct(name, rec);
+        }
+        for (tid, acc) in other.multimer {
+            self.multimer.entry(tid).or_default().merge(&acc);
+        }
+    }
+
+    /// Keep one structure call per read; the smallest key wins so the choice is
+    /// the same for any record order or thread count.
+    fn note_struct(&mut self, name: String, rec: StructRec) {
+        match self.structs.get(&name) {
+            Some(old) if old.key() <= rec.key() => {}
+            _ => {
+                self.structs.insert(name, rec);
+            }
+        }
     }
 }
 
@@ -1365,6 +1845,68 @@ fn process_record(
     let sa = sa_string(rec);
     let read_len = rec.seq_len() as u64;
 
+    // Lazily parsed SA entries (shared by the structure detection and the clip
+    // rules below).
+    let sa_cell = std::cell::OnceCell::new();
+    let get_sa = || -> Option<&[crate::translate::SaEntry]> {
+        sa_cell
+            .get_or_init(|| match rec.aux(b"SA") {
+                Ok(Aux::String(s)) => crate::translate::parse_sa(s).ok(),
+                _ => None,
+            })
+            .as_deref()
+    };
+
+    // The read's segments (this record + its SA entries), the circular
+    // concatemer / tandem call from them, and the per-contig multimer statistics.
+    let r_seg = orig_query_iv(strand, lead as u64, trail as u64, cigar_qlen)
+        .map(|(qs, qe)| Seg { tid, strand, qs, qe, rs: pos as u64, re: end as u64 });
+    let mut segs: Vec<Seg> = Vec::new();
+    if let Some(rs) = &r_seg {
+        segs.push(rs.clone());
+        for e in get_sa().unwrap_or(&[]) {
+            let Some(&etid) = ctx.name_to_tid.get(&e.rname) else { continue };
+            let Some((e_lead, e_trail, e_rspan, e_qtotal)) = sa_cigar_stats(&e.cigar) else {
+                continue;
+            };
+            if e_rspan == 0 || e_qtotal != cigar_qlen {
+                continue;
+            }
+            let Some((qs, qe)) = orig_query_iv(e.strand, e_lead, e_trail, cigar_qlen) else {
+                continue;
+            };
+            let rs0 = e.pos.saturating_sub(1);
+            segs.push(Seg { tid: etid, strand: e.strand, qs, qe, rs: rs0, re: rs0 + e_rspan });
+        }
+    }
+    let call = match &r_seg {
+        Some(r) if segs.len() > 1 && r.qe - r.qs >= ctx.params.concatemer_min_segment => {
+            detect_structure(&segs, cigar_qlen, ctx.circular, ctx.contig_len, ctx.params)
+        }
+        _ => None,
+    };
+    if let Some(c) = &call {
+        stats.note_struct(
+            name.clone(),
+            StructRec {
+                kind: c.kind,
+                read_len: cigar_qlen,
+                contig: ctx.contig_name.get(c.tid).cloned().unwrap_or_default(),
+                strand: c.strand,
+                period: c.period,
+                units: c.units,
+            },
+        );
+    }
+    if primary
+        && circular
+        && contig_len > 0
+        && contig_len as u64 <= ctx.params.concatemer_max_contig
+    {
+        let aligned = dominant_strand_bp(&segs, tid);
+        stats.multimer.entry(tid).or_default().add_read(cigar_qlen, aligned, contig_len as u64);
+    }
+
     let mut evs: Vec<(&'static str, Event)> = Vec::new();
     // Offer a base event to every applicable finding (or `.` when none applies).
     let offerings = |reason: &'static str, base: Event, ids: Option<Vec<u32>>, evs: &mut Vec<(&'static str, Event)>| {
@@ -1385,109 +1927,177 @@ fn process_record(
         }
     };
 
-    // clip (and hairpin): a terminal soft clip >= clip_min_len; on a circular
-    // contig a clip at an exact contig end, or within `circ_end_tol` bp with a
-    // same-contig, same-strand SA partner within `circ_end_tol` bp of the
-    // opposite end, is an origin crossing (skipped). Otherwise, if an SA partner
-    // satisfies the hairpin rule and covers the clip (residual < clip_min_len),
-    // the clip becomes a `hairpin` event (suppressed by `--no-hairpins`).
-    if !ctx.params.no_clips {
+    // Terminal clips >= clip_min_len. Per clip side: the origin-crossing class,
+    // the hairpin geometry (used for the structure label and precedence whatever
+    // `--no-clips` / `--scope` say) and whether the read's chain covers the
+    // clip. Selection (events) is gated by `--no-clips` and the scope:
+    //  1. a hairpin partner covering the clip -> `hairpin` (never on an origin
+    //     crossing; suppressed by `--no-hairpins`);
+    //  2. else the read's best concatemer / tandem chain covering the clip
+    //     (residual < clip_min_len) -> `concatemer` / `tandem`, before the
+    //     origin-crossing skip (every clip of a circular concatemer sits at a
+    //     contig end). The clip it replaced is kept as a fallback (`deferred`):
+    //     if the read turns out to be a hairpin read, the structure event is
+    //     dropped at the merge and the fallback is used instead;
+    //  3. else an origin crossing (skipped) or a plain `clip`.
+    {
         let tol = ctx.params.circ_end_tol;
         let check_left = lclip && lead >= ctx.params.clip_min_len;
         let check_right = rclip && trail >= ctx.params.clip_min_len;
-        if check_left || check_right {
-            let sa_cell = std::cell::OnceCell::new();
-            let get_sa = || -> Option<&[crate::translate::SaEntry]> {
-                sa_cell
-                    .get_or_init(|| match rec.aux(b"SA") {
-                        Ok(Aux::String(s)) => crate::translate::parse_sa(s).ok(),
-                        _ => None,
-                    })
-                    .as_deref()
-            };
-            let mut skipped_origin = false;
-            let mut had_hairpin = false;
-
-            for (is_left, enabled, clip_len, ev_pos, side_str) in [
-                (true, check_left, lead, pos as u64, "left"),
-                (false, check_right, trail, (end - 1) as u64, "right"),
-            ] {
-                if !enabled {
-                    continue;
-                }
-                match classify_circular_origin_clip(
-                    circular,
-                    is_left,
+        let mk = |len: u64, ev_pos: u64, detail: String| Event {
+            len,
+            pos: ev_pos,
+            primary,
+            strand,
+            detail,
+            finding: None,
+            contig: contig.clone(),
+            sa: sa.clone(),
+        };
+        let mut skipped_origin = false;
+        let mut had_hairpin = false;
+        let mut deferred = DeferredRec {
+            read_len: cigar_qlen,
+            tid,
+            origin_exact: 0,
+            origin_near: 0,
+            record_skipped: false,
+            clips: Vec::new(),
+        };
+        for (is_left, enabled, clip_len, ev_pos, side_str) in [
+            (true, check_left, lead, pos as u64, "left"),
+            (false, check_right, trail, (end - 1) as u64, "right"),
+        ] {
+            if !enabled {
+                continue;
+            }
+            let clip_len = clip_len as u64;
+            let origin = classify_circular_origin_clip(
+                circular,
+                is_left,
+                pos as u64,
+                end as u64,
+                &contig,
+                contig_len as u64,
+                strand,
+                tol,
+                get_sa,
+            );
+            let hp_detail = if origin == OriginClip::None {
+                find_hairpin_partner(
+                    &contig,
                     pos as u64,
                     end as u64,
-                    &contig,
-                    contig_len as u64,
                     strand,
-                    tol,
-                    get_sa,
-                ) {
-                    OriginClip::Exact => {
-                        skipped_origin = true;
-                        stats.origin_skipped_exact += 1;
+                    lead as u64,
+                    trail as u64,
+                    cigar_qlen,
+                    is_left,
+                    ctx.params,
+                    get_sa(),
+                )
+            } else {
+                None
+            };
+            let covers = hp_detail.is_none()
+                && match (&call, &r_seg) {
+                    (Some(c), Some(r)) => {
+                        let clip_iv =
+                            if is_left ^ (strand == '+') { (r.qe, cigar_qlen) } else { (0, r.qs) };
+                        chain_covers_clip(c, r, clip_iv, ctx.params.clip_min_len as u64)
                     }
-                    OriginClip::NearEnd => {
-                        skipped_origin = true;
-                        stats.origin_skipped_near_end += 1;
-                    }
-                    OriginClip::None => {
-                        if let Some(ids) = ctx.event_attr(tid, ev_pos) {
-                            if let Some(detail) = find_hairpin_partner(
-                                &contig,
-                                pos as u64,
-                                end as u64,
-                                strand,
-                                lead as u64,
-                                trail as u64,
-                                cigar_qlen,
-                                is_left,
-                                ctx.params,
-                                get_sa(),
-                            ) {
-                                had_hairpin = true;
-                                if !ctx.params.no_hairpins {
-                                    let base = Event {
-                                        len: clip_len as u64,
-                                        pos: ev_pos,
-                                        primary,
-                                        strand,
-                                        detail,
-                                        finding: None,
-                                        contig: contig.clone(),
-                                        sa: sa.clone(),
-                                    };
-                                    offerings(R_HAIRPIN, base, Some(ids), &mut evs);
-                                }
-                            } else {
-                                let base = Event {
-                                    len: clip_len as u64,
-                                    pos: ev_pos,
-                                    primary,
-                                    strand,
-                                    detail: format!("side={side_str};len={clip_len}"),
-                                    finding: None,
-                                    contig: contig.clone(),
-                                    sa: sa.clone(),
-                                };
-                                offerings(R_CLIP, base, Some(ids), &mut evs);
-                            }
-                        }
+                    _ => false,
+                };
+            if let Some(detail) = &hp_detail {
+                let base = mk(clip_len, ev_pos, detail.clone());
+                match stats.hairpin_label.get(&name) {
+                    Some((old, _)) if !event_better(&base, old) => {}
+                    _ => {
+                        stats.hairpin_label.insert(name.clone(), (base, cigar_qlen));
                     }
                 }
             }
+            // Origin-crossing evidence (not a concatemer clip), whatever the flags.
+            if origin != OriginClip::None && !covers {
+                stats.origin_by_contig.entry(tid).or_default().insert(name.clone());
+            }
+            if covers {
+                match origin {
+                    OriginClip::Exact => deferred.origin_exact += 1,
+                    OriginClip::NearEnd => deferred.origin_near += 1,
+                    OriginClip::None => {}
+                }
+            }
+            if ctx.params.no_clips {
+                continue;
+            }
+            let ids = ctx.event_attr(tid, ev_pos);
+            if let Some(detail) = hp_detail {
+                if let Some(ids) = ids {
+                    had_hairpin = true;
+                    if !ctx.params.no_hairpins {
+                        offerings(R_HAIRPIN, mk(clip_len, ev_pos, detail), Some(ids), &mut evs);
+                    }
+                }
+                continue;
+            }
+            if covers {
+                let c = call.as_ref().expect("covers implies a call");
+                if let Some(ids) = ids {
+                    let selected_kind = match c.kind {
+                        StructKind::Concatemer => ctx.params.keep_concatemers,
+                        StructKind::Tandem => !ctx.params.no_tandems,
+                    };
+                    if selected_kind {
+                        let detail = format!("period={};units={:.2}", c.period, c.units);
+                        offerings(
+                            c.kind.name(),
+                            mk(clip_len, ev_pos, detail),
+                            Some(ids.clone()),
+                            &mut evs,
+                        );
+                    }
+                    if origin == OriginClip::None {
+                        let detail = format!("side={side_str};len={clip_len}");
+                        offerings(
+                            R_CLIP,
+                            mk(clip_len, ev_pos, detail),
+                            Some(ids),
+                            &mut deferred.clips,
+                        );
+                    }
+                }
+                continue;
+            }
+            match origin {
+                OriginClip::Exact => {
+                    skipped_origin = true;
+                    stats.origin_skipped_exact += 1;
+                }
+                OriginClip::NearEnd => {
+                    skipped_origin = true;
+                    stats.origin_skipped_near_end += 1;
+                }
+                OriginClip::None => {
+                    if let Some(ids) = ids {
+                        let detail = format!("side={side_str};len={clip_len}");
+                        offerings(R_CLIP, mk(clip_len, ev_pos, detail), Some(ids), &mut evs);
+                    }
+                }
+            }
+        }
 
-            if skipped_origin {
-                stats.origin_skipped_records += 1;
-                stats.origin_skipped_reads.insert(name.clone());
-            }
-            if had_hairpin {
-                stats.hairpin_records += 1;
-                stats.hairpin_reads.insert(name.clone());
-            }
+        if skipped_origin {
+            stats.origin_skipped_records += 1;
+            stats.origin_skipped_reads.insert(name.clone());
+        }
+        if had_hairpin {
+            stats.hairpin_records += 1;
+            stats.hairpin_reads.insert(name.clone());
+        }
+        if !deferred.clips.is_empty() || deferred.origin_exact + deferred.origin_near > 0 {
+            deferred.record_skipped = skipped_origin;
+            stats.deferred.entry(name.clone()).or_default().push(deferred);
         }
     }
 
@@ -2151,6 +2761,9 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
             length_bp: contig_len[tid] as u64,
             circular: is_circ,
             circular_by: by,
+            origin_crossing_reads: 0,
+            concatemer_reads: 0,
+            multimer: None,
         });
     }
     drop(fasta);
@@ -2181,6 +2794,7 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
         contig_name: &contig_name,
         contig_len: &contig_len,
         circular: &circular,
+        name_to_tid: &name_to_tid,
         findings: findings.as_ref(),
         groups: groups.as_ref(),
     };
@@ -2303,6 +2917,57 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
             }
         }
     }
+    // Precedence: a hairpin read is a hairpin (the label does not depend on
+    // `--no-clips` / `--scope`): its concatemer / tandem call and events are
+    // dropped, and the clips they replaced become what they would have been
+    // without structure detection (`clip` events, origin-crossing skips).
+    let hairpin_names: Vec<String> = stats.hairpin_label.keys().cloned().collect();
+    for name in &hairpin_names {
+        stats.structs.remove(name);
+        if let Some(a) = global.get_mut(name) {
+            a.events.retain(|(r, _), _| *r != R_CONCATEMER && *r != R_TANDEM);
+        }
+        for d in stats.deferred.remove(name).unwrap_or_default() {
+            if d.origin_exact + d.origin_near > 0 {
+                stats.origin_by_contig.entry(d.tid).or_default().insert(name.clone());
+                if !params.no_clips {
+                    stats.origin_skipped_exact += d.origin_exact;
+                    stats.origin_skipped_near_end += d.origin_near;
+                    if !d.record_skipped {
+                        stats.origin_skipped_records += 1;
+                    }
+                    stats.origin_skipped_reads.insert(name.clone());
+                }
+            }
+            if !d.clips.is_empty() {
+                let a = global.entry(name.clone()).or_default();
+                a.read_len = a.read_len.max(d.read_len);
+                for (reason, ev) in d.clips {
+                    a.offer(reason, ev);
+                }
+            }
+        }
+    }
+    let concatemer_detected = StructureDetected {
+        reads: stats.structs.values().filter(|s| s.kind == StructKind::Concatemer).count() as u64,
+    };
+    let tandem_detected = StructureDetected {
+        reads: stats.structs.values().filter(|s| s.kind == StructKind::Tandem).count() as u64,
+    };
+    for (tid, c) in contigs.iter_mut().enumerate() {
+        c.origin_crossing_reads =
+            stats.origin_by_contig.get(&tid).map_or(0, |s| s.len() as u64);
+        c.concatemer_reads = stats
+            .structs
+            .values()
+            .filter(|s| s.kind == StructKind::Concatemer && s.contig == c.name)
+            .count() as u64;
+        if c.circular && c.length_bp > 0 && c.length_bp <= params.concatemer_max_contig {
+            c.multimer = Some(stats.multimer.get(&tid).cloned().unwrap_or_default().finish());
+        }
+    }
+    let structure_hairpins = std::mem::take(&mut stats.hairpin_label);
+    let structure_structs = std::mem::take(&mut stats.structs);
     let counts = stats.counts;
     let length_hist = stats.length_hist;
     let hairpin_detected = HairpinDetected {
@@ -2506,6 +3171,75 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
         w.flush()?;
     }
 
+    // Write the structure table: one row per hairpin / concatemer / tandem read
+    // (selected or not), sorted by read name.
+    {
+        struct StructRow {
+            read: String,
+            len: u64,
+            structure: &'static str,
+            contig: String,
+            strand: char,
+            period: String,
+            units: String,
+            arms: String,
+            reason: &'static str,
+        }
+        let mut srows: Vec<StructRow> = Vec::new();
+        for (name, (ev, len)) in &structure_hairpins {
+            srows.push(StructRow {
+                read: name.clone(),
+                len: *len,
+                structure: R_HAIRPIN,
+                contig: ev.contig.clone(),
+                strand: ev.strand,
+                period: ".".to_string(),
+                units: ".".to_string(),
+                arms: ev.detail.clone(),
+                reason: R_HAIRPIN,
+            });
+        }
+        for (name, s) in &structure_structs {
+            srows.push(StructRow {
+                read: name.clone(),
+                len: s.read_len,
+                structure: s.kind.name(),
+                contig: s.contig.clone(),
+                strand: s.strand,
+                period: s.period.to_string(),
+                units: format!("{:.2}", s.units),
+                arms: ".".to_string(),
+                reason: s.kind.name(),
+            });
+        }
+        srows.sort_by(|a, b| a.read.cmp(&b.read));
+        let path = out_path(out_prefix, ".structure.tsv");
+        let f = std::fs::File::create(&path)
+            .with_context(|| format!("creating {}", path.display()))?;
+        let mut w = std::io::BufWriter::new(f);
+        writeln!(w, "read\tlength\tstructure\tcontig\tstrand\tperiod\tunits\tarms\tselected")?;
+        for r in &srows {
+            let sel = selected
+                .binary_search_by(|(n, _)| n.as_str().cmp(r.read.as_str()))
+                .ok()
+                .is_some_and(|i| selected[i].1.events.keys().any(|(reason, _)| *reason == r.reason));
+            writeln!(
+                w,
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                r.read,
+                r.len,
+                r.structure,
+                r.contig,
+                r.strand,
+                r.period,
+                r.units,
+                r.arms,
+                if sel { "yes" } else { "no" }
+            )?;
+        }
+        w.flush()?;
+    }
+
     // Write the read-length histogram (always written; header only when empty).
     let lengths_path = out_path(out_prefix, ".lengths.tsv");
     {
@@ -2525,6 +3259,8 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
         reads,
         cap: CapSummary { reads: cap_reads, bp: cap_bp },
         hairpin_detected,
+        concatemer_detected,
+        tandem_detected,
         origin_crossing_skipped,
         records: counts,
         contigs,
@@ -2549,6 +3285,14 @@ fn run_fish_inner(input: &Path, ref_path: &Path, out_prefix: &Path, params: &Fis
             hairpin_max_gap: params.hairpin_max_gap,
             hairpin_max_gap_frac: params.hairpin_max_gap_frac,
             hairpin_min_arm_frac: params.hairpin_min_arm_frac,
+            keep_concatemers: params.keep_concatemers,
+            tandems: !params.no_tandems,
+            concatemer_min_segment: params.concatemer_min_segment,
+            concatemer_min_units: params.concatemer_min_units,
+            tandem_min_period: params.tandem_min_period,
+            chain_max_gap: params.chain_max_gap,
+            chain_max_gap_frac: params.chain_max_gap_frac,
+            concatemer_max_contig: params.concatemer_max_contig,
             indel_min_len: params.indel_min_len,
             indel_merge_gap: params.indel_merge_gap,
             indel_piece_min: params.indel_piece_min,
@@ -2690,7 +3434,9 @@ mod cap_unit {
     #[test]
     fn non_clip_reasons_never_dropped() {
         let mut v = bin_of(5, "c", 10, "c");
-        let others = [R_UNMAPPED, R_HAIRPIN, R_INS, R_DEL, R_LINKED, R_LOCUS, R_BAIT];
+        let others = [
+            R_UNMAPPED, R_HAIRPIN, R_CONCATEMER, R_TANDEM, R_INS, R_DEL, R_LINKED, R_LOCUS, R_BAIT,
+        ];
         for (r, other) in others.iter().enumerate() {
             v.push(read(
                 &format!("x{r}"),
@@ -2808,6 +3554,183 @@ mod cap_unit {
             got.sort();
             assert_eq!(got, expect, "permutation {k}");
         }
+    }
+}
+
+#[cfg(test)]
+mod structure_unit {
+    use super::*;
+
+    fn seg(tid: usize, strand: char, qs: u64, qe: u64, rs: u64, re: u64) -> Seg {
+        Seg { tid, strand, qs, qe, rs, re }
+    }
+
+    /// Contig 0: circular, 2000 bp; contig 1: linear, 20000 bp; contig 2: circular, 10000 bp.
+    fn detect(segs: &[Seg], read_len: u64) -> Option<StructCall> {
+        detect_structure(
+            segs,
+            read_len,
+            &[true, false, true],
+            &[2000, 20_000, 10_000],
+            &FishParams::default(),
+        )
+    }
+
+    fn kind_period_units(c: &Option<StructCall>) -> Option<(StructKind, u64, f64)> {
+        c.as_ref().map(|c| (c.kind, c.period, c.units))
+    }
+
+    #[test]
+    fn circular_concatemer_both_strands() {
+        // 2.5 units of a 2 kb plasmid: [100,2000) | [0,2000) | [0,1100)
+        let plus = [
+            seg(0, '+', 0, 1900, 100, 2000),
+            seg(0, '+', 1900, 3900, 0, 2000),
+            seg(0, '+', 3900, 5000, 0, 1100),
+        ];
+        assert_eq!(kind_period_units(&detect(&plus, 5000)), Some((StructKind::Concatemer, 2000, 2.5)));
+        // The same read on the reverse strand (reference descending along the read).
+        let minus = [
+            seg(0, '-', 0, 1100, 0, 1100),
+            seg(0, '-', 1100, 3100, 0, 2000),
+            seg(0, '-', 3100, 5000, 100, 2000),
+        ];
+        assert_eq!(kind_period_units(&detect(&minus, 5000)), Some((StructKind::Concatemer, 2000, 2.5)));
+        // A full-circle jump is a circular concatemer, not a tandem.
+        let full = [seg(0, '+', 0, 2000, 0, 2000), seg(0, '+', 2000, 4000, 0, 2000)];
+        assert_eq!(kind_period_units(&detect(&full, 4000)), Some((StructKind::Concatemer, 2000, 2.0)));
+    }
+
+    #[test]
+    fn origin_crossing_below_1_2_units_is_not_called() {
+        // 1.05 and 1.19 units stay plain origin crossings; 1.20 is called.
+        let mk = |total: u64| {
+            [seg(0, '+', 0, 1300, 700, 2000), seg(0, '+', 1300, total, 0, total - 1300)]
+        };
+        assert!(detect(&mk(2100), 2100).is_none());
+        assert!(detect(&mk(2380), 2380).is_none());
+        assert_eq!(kind_period_units(&detect(&mk(2400), 2400)), Some((StructKind::Concatemer, 2000, 1.2)));
+        // A plain origin crossing on a big contig is neither.
+        let big = [seg(2, '+', 0, 2000, 8000, 10_000), seg(2, '+', 2000, 4000, 0, 2000)];
+        assert!(detect(&big, 4000).is_none());
+    }
+
+    #[test]
+    fn tandem_linear_and_circular_modulo() {
+        // Back jump 2370 on a linear contig: units = 6000 / 2370.
+        let t = [seg(1, '+', 0, 3000, 1000, 4000), seg(1, '+', 3000, 6000, 1630, 4630)];
+        assert_eq!(kind_period_units(&detect(&t, 6000)), Some((StructKind::Tandem, 2370, 2.53)));
+        // Same on a circular 10 kb contig (jump taken modulo L stays 2370).
+        let c = [seg(2, '+', 0, 3000, 1000, 4000), seg(2, '+', 3000, 6000, 1630, 4630)];
+        assert_eq!(kind_period_units(&detect(&c, 6000)), Some((StructKind::Tandem, 2370, 2.53)));
+        // Reverse strand.
+        let m = [seg(1, '-', 0, 3000, 1630, 4630), seg(1, '-', 3000, 6000, 1000, 4000)];
+        assert_eq!(kind_period_units(&detect(&m, 6000)), Some((StructKind::Tandem, 2370, 2.53)));
+        // Back jump below the minimum period.
+        let s = [seg(1, '+', 0, 3000, 1000, 4000), seg(1, '+', 3000, 6000, 3100, 6100)];
+        assert!(detect(&s, 6000).is_none());
+        // Forward jump (a deletion) is not a tandem.
+        let f = [seg(1, '+', 0, 3000, 1000, 4000), seg(1, '+', 3000, 6000, 6000, 9000)];
+        assert!(detect(&f, 6000).is_none());
+    }
+
+    #[test]
+    fn concatemer_beats_tandem() {
+        let segs = [
+            seg(0, '+', 0, 2000, 0, 2000),
+            seg(0, '+', 2000, 4000, 0, 2000),
+            seg(1, '+', 4000, 7000, 1000, 4000),
+            seg(1, '+', 7000, 10_000, 1630, 4630),
+        ];
+        let c = detect(&segs, 10_000).unwrap();
+        assert_eq!((c.kind, c.period, c.units), (StructKind::Concatemer, 2000, 2.0));
+        // Without the concatemer part the tandem is found.
+        assert_eq!(detect(&segs[2..], 6000).unwrap().kind, StructKind::Tandem);
+    }
+
+    #[test]
+    fn short_segments_and_non_adjacent_segments_are_ignored() {
+        // Second segment below the 500 bp minimum.
+        let short = [seg(1, '+', 0, 3000, 1000, 4000), seg(1, '+', 3000, 3400, 1630, 2030)];
+        assert!(detect(&short, 3400).is_none());
+        // IS-pair / rRNA-like: same strand, back jump, but the segments are far
+        // apart in the read.
+        let far = [seg(1, '+', 0, 1500, 1000, 2500), seg(1, '+', 5000, 6500, 1200, 2700)];
+        assert!(detect(&far, 7000).is_none());
+        // Back-to-back tolerance: gap 200 passes, 201 does not (read < 10 kb).
+        let gap = |g: u64| [seg(1, '+', 0, 3000, 1000, 4000), seg(1, '+', 3000 + g, 6000 + g, 1630, 4630)];
+        assert!(detect(&gap(200), 6200).is_some());
+        assert!(detect(&gap(201), 6201).is_none());
+        // Overlap counts like a gap.
+        assert!(detect(&gap(0), 6000).is_some());
+        let ov = [seg(1, '+', 0, 3000, 1000, 4000), seg(1, '+', 2900, 5900, 1630, 4630)];
+        assert!(detect(&ov, 5900).is_some());
+        // Different strand / contig never links.
+        let opp = [seg(1, '+', 0, 3000, 1000, 4000), seg(1, '-', 3000, 6000, 1630, 4630)];
+        assert!(detect(&opp, 6000).is_none());
+    }
+
+    #[test]
+    fn note_struct_prefers_concatemer_then_most_units() {
+        let rec = |kind, units: f64| StructRec {
+            kind,
+            read_len: 10_000,
+            contig: "c".to_string(),
+            strand: '+',
+            period: 2000,
+            units,
+        };
+        let mut st = WorkerStats::default();
+        st.note_struct("r".to_string(), rec(StructKind::Tandem, 3.0));
+        st.note_struct("r".to_string(), rec(StructKind::Tandem, 4.5));
+        st.note_struct("r".to_string(), rec(StructKind::Tandem, 2.0));
+        assert_eq!(st.structs["r"].units, 4.5);
+        st.note_struct("r".to_string(), rec(StructKind::Concatemer, 1.2));
+        assert_eq!(st.structs["r"].kind, StructKind::Concatemer);
+    }
+
+    #[test]
+    fn clip_coverage_uses_the_chain() {
+        let segs = [seg(1, '+', 0, 3000, 1000, 4000), seg(1, '+', 3000, 6000, 1630, 4630)];
+        let call = detect(&segs, 6200).unwrap();
+        // Clip [3000, 6200) of the first segment: covered up to 6000, residual 200.
+        assert!(!chain_covers_clip(&call, &segs[0], (3000, 6200), 150));
+        assert!(chain_covers_clip(&call, &segs[0], (3000, 6200), 250));
+        assert!(chain_covers_clip(&call, &segs[0], (3000, 6000), 150));
+        // A record outside the chain never converts.
+        let other = seg(1, '+', 6000, 6200, 9000, 9200);
+        assert!(!chain_covers_clip(&call, &other, (0, 6000), 150));
+    }
+
+    #[test]
+    fn multimer_binning_and_long_read_rule() {
+        let l = 2000;
+        assert_eq!(multimer_units(1000, l), 1);
+        assert_eq!(multimer_units(2000, l), 1);
+        assert_eq!(multimer_units(2999, l), 1);
+        assert_eq!(multimer_units(3000, l), 2);
+        assert_eq!(multimer_units(4999, l), 2);
+        assert_eq!(multimer_units(5000, l), 3);
+        assert_eq!(multimer_units(6999, l), 3);
+        assert_eq!(multimer_units(7000, l), 4);
+
+        let mut acc = MultimerAcc::default();
+        for _ in 0..4 {
+            acc.add_read(4200, 4100, 2000); // long reads, 2 units
+        }
+        acc.add_read(1000, 1000, 2000);
+        let m = acc.finish();
+        assert_eq!((m.reads, m.reads_monomer, m.reads_dimer), (5, 1, 4));
+        assert_eq!(m.frac_multimer_given_long, None, "4 long reads: null");
+        assert_eq!(m.multimer_bp_frac, (16_800.0 / 17_800.0 * 10_000.0_f64).round() / 10_000.0);
+        acc.add_read(4200, 1500, 2000); // a 5th long read, a monomer
+        let m = acc.finish();
+        assert_eq!(m.frac_multimer_given_long, Some(0.8));
+        acc.add_read(8000, 7500, 2000);
+        acc.add_read(6200, 6100, 2000);
+        let m = acc.finish();
+        assert_eq!((m.reads_trimer, m.reads_4plus_units), (1, 1));
+        assert_eq!(MultimerAcc::default().finish().multimer_bp_frac, 0.0);
     }
 }
 

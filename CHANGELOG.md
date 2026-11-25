@@ -5,6 +5,56 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `cramhook fish` structure detection from a read's own segments (the record plus its `SA`
+  entries; same-contig, same-strand segments of >= 500 bp that are back to back in the read, query
+  gap or overlap <= max(200 bp, 2 % of the read)):
+  - **`concatemer`**: a read of a circular contig that goes round it, `units` (summed aligned query
+    length / contig length) >= 1.2; `period` = the contig length. A concatemer is explained by the
+    assembly: it is counted but **not selected** by default; **`--keep-concatemers`** selects it
+    with reason `concatemer`. A clip covering the next unit becomes a `concatemer` event (also at
+    the contig end, before the origin-crossing skip) unless >= `--clip-min-len` of it stays
+    unexplained; a remaining real clip keeps its `clip` row.
+  - **`tandem`**: consecutive segments that jump back >= 1 kb on the reference (modulo the contig
+    length on circular contigs, so a plain origin crossing is never a tandem); `period` = the
+    jump, `units` = aligned query length / period >= 1.2. The assembly does not explain it (a
+    collapsed tandem repeat, an excised circle), so it is **selected by default** (reason `tandem`,
+    detail `period=P;units=U`); **`--no-tandems`** drops it without falling back to `clip`.
+  - Precedence: `hairpin` > `concatemer` > `tandem` > origin-crossing skip; one structure per read.
+    The label does not depend on `--no-clips`, `--scope` or `--no-hairpins` (those only gate
+    selection), so `P.structure.tsv` can list more hairpin reads than `hairpin_detected` (which
+    keeps its 0.1.2 meaning). A hairpin read's replaced clips revert to `clip` events.
+    Neither reason counts against or is thinned by `--clip-cap`.
+  - New `<prefix>.structure.tsv` (always written, header-only when empty): one row per hairpin,
+    concatemer or tandem read, selected or not (`read, length, structure, contig, strand, period,
+    units, arms, selected`).
+  - `P.fish.json`: `concatemer_detected` / `tandem_detected` (`reads`), `reads.by_reason.concatemer`
+    / `.tandem` when selected, the thresholds and `keep_concatemers` / `tandems` in `params`, and
+    per contig `origin_crossing_reads` (reads with an origin-crossing clip on that contig that is
+    not part of a concatemer / tandem chain: evidence it is circular; independent of `--no-clips`
+    and `--scope`), `concatemer_reads` (reads with a circular-concatemer call on that contig) and
+    `multimer` (circular contigs <= 50 kb: `reads`, `reads_monomer`,
+    `reads_dimer`, `reads_trimer`, `reads_4plus_units`, `multimer_bp_frac`,
+    `frac_multimer_given_long`; else `null`).
+  - Hidden thresholds: `--concatemer-min-segment` (500), `--concatemer-min-units` (1.2),
+    `--tandem-min-period` (1000), `--chain-max-gap` (200), `--chain-max-gap-frac` (0.02),
+    `--concatemer-max-contig` (50000).
+
+### Changed
+
+- `cramhook fish`: the clips of a circular concatemer are no longer counted as skipped origin
+  crossings (`origin_crossing_skipped`); they are `concatemer` events (selected only with
+  `--keep-concatemers`). A tandem read that was selected as `clip` keeps that row for any clip the
+  tandem does not explain, and its other clips are `tandem` rows.
+
+### Output format
+
+- Output format version remains `1`; every change is additive (`P.structure.tsv`, new `P.fish.json`
+  keys, `concatemer` and `tandem` reasons).
+
 ## [0.1.3] - 2026-11-20
 
 ### Changed

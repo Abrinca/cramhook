@@ -1527,3 +1527,72 @@ incl. junction45/50/55 supplementaries; first lift `--clip-min-hits 100000` → 
   `header_circular_flag` (`Some(true)` → circular, `Some(false)` → linear, `"header"`); else
   absent/conflicting → circular (`"default"`). `P.fish.json` adds top-level `contigs: [{name,
   length_bp, circular, circular_by}]` additively (`format_version` stays `1`).
+
+## Concatemer and tandem structures in `fish` (user + manager, 2026-11-25)
+
+- **Concatemers are reads of circular molecules, not chimeras.** A read that goes round a circular
+  contig k > 1 times (a small plasmid read as a dimer, trimer, ...) aligns end to end to that
+  contig, over and over; every junction between two units is the contig's own origin. The assembly
+  explains it, so `fish` neither selects it by default (`--keep-concatemers` selects it, reason
+  `concatemer`) nor counts its clips as origin crossings. They still matter to the caller
+  (`myloasm` drops a small plasmid whose reads are mostly contained multimers), hence the counts, the
+  per-contig `multimer` statistics and `P.structure.tsv`.
+- **Why units >= 1.2.** A single origin crossing carries at most 1 unit; a read that is only a few
+  percent past 1.0 is a normal origin crossing with aligner jitter, and a cut at 1.2 is where the
+  read gains a second, assembler-visible copy of >= 20 % of the contig (for a 10 kb plasmid,
+  myloasm already fails there). Below 1.2 the read keeps the origin-crossing skip. Hidden flag
+  `--concatemer-min-units`.
+- **Tandems stay selected.** A back jump of >= 1 kb between back-to-back same-strand segments is a
+  repeat the reference holds once but the read holds twice or more: a collapsed tandem repeat or an
+  excised circle (FAM20862 has a 2.37 kb element, ~100 reads), or a duplicated prophage. The
+  assembly does not explain the junction, so the read is selected by default (`--no-tandems` drops
+  it, without falling back to `clip`). On circular contigs the jump is taken modulo the contig
+  length, so an origin crossing is never a tandem and a full-circle jump is a concatemer.
+- **Selection rules.** A clip becomes a `concatemer` / `tandem` event when the chain covers it
+  (residual < `--clip-min-len`), like the hairpin rule; the concatemer rule runs before the
+  origin-crossing skip, because every clip of a circular concatemer sits at a contig end. A real
+  residual clip keeps its `clip` row. Neither reason is counted against or thinned by `--clip-cap`
+  (a hotspot of tandem reads is not clip noise). Precedence: hairpin > concatemer > tandem >
+  origin-crossing skip; a hairpin read drops its concatemer/tandem events.
+- **Differences from mindtherest's `concatemer.py`** (so that mindtherest can align; the contigs'
+  `multimer` numbers reproduce its table):
+  - *Detection is alignment-based.* mindtherest calls concatemers from all-vs-all self-hits of the
+    read pool (offset clustering, harmonics, flank and span rules); `fish` uses the read's own
+    primary + supplementary segments (>= 500 bp, back to back within max(200 bp, 2 %)), so it only
+    sees reads that map to the assembly; mindtherest's detector stays for unmapped pool reads.
+  - *The call threshold is on units*, `units` >= 1.2 of the chain (union of the chain's query
+    intervals / period, two decimals), with `period` = the contig length (concatemer) or the median
+    back jump (tandem). mindtherest's rule is on the self-hit offset (`P` >= 1 kb, extra span >=
+    max(1 kb, 20 % of `P`), flank <= max(500 bp, 10 %)). Segments need not span "almost the whole
+    read": a concatemer with an unaligned tail is still called and keeps its `clip` row.
+  - *Multimer table.* Same binning as mindtherest (`units = round-half-up(aligned / L)`, at least
+    1; monomer < 1.5, dimer [1.5, 2.5), trimer [2.5, 3.5), 4+ >= 3.5; aligned = union of query
+    intervals on the dominant strand), same `multimer_bp_frac` and `frac_multimer_given_long`
+    (reads >= 2L carrying >= 2 units; `null` below 5 such reads; mindtherest writes `NA`). So a
+    1.3-unit read is a `concatemer` call but a monomer in the table. Differences: only reads with a
+    **primary** record on the contig count (mindtherest also counts reads whose supplementary alone
+    is on the contig: 4615 vs 4578 reads on the 38 kb contig, the other contigs agree within 1
+    read); the read length is the SEQ length (mindtherest takes it from the CIGAR); duplicate and
+    QC-fail records are skipped as everywhere in `fish` (mindtherest only skips unmapped and
+    secondary); the cutoff is a hidden flag, `--concatemer-max-contig` (50 kb), and the statistics
+    cover circular contigs only (header / `--linear` / default circular).
+  - *No cutting.* `fish` only reports and selects; it never cuts reads to one unit.
+- **Review follow-ups (same day).**
+  - *Tandem on a circular contig:* the back jump is `J = -d'` with `d'` reduced into `(-L/2, L/2]`,
+    so a tandem needs `J < L/2` after the reduction (a longer jump is the same step the other way
+    round the circle).
+  - *Accepted edge case:* a `Round` step (`d ~ 0 mod L`) also accepts an ordinary mid-contig split
+    of one alignment into two adjacent segments; such a chain only becomes a concatemer when its
+    aligned length reaches 1.2 units, which cannot happen without going round the contig.
+  - *Only the best call converts clips:* concatemer before tandem, then the most units (same rule
+    within one record's chains and across the records of a read); clips of a second chain stay
+    `clip`.
+  - *Hairpin precedence is a property of the read:* hairpin geometry (the `find_hairpin_partner`
+    rule on any qualifying, non-origin clip) labels the read whatever `--no-clips`, `--scope` or
+    `--no-hairpins` say; those flags only gate selection. `hairpin_detected` keeps its 0.1.2
+    meaning, so it can be smaller than the hairpin rows of `P.structure.tsv`. A hairpin read drops
+    its concatemer/tandem events and the clips they replaced revert to `clip` events (if clips are
+    on and the clip is in scope) or origin-crossing skips.
+  - *Per-contig evidence:* `origin_crossing_reads` and the new `concatemer_reads` do not depend on
+    `--no-clips` / `--scope`; `origin_crossing_skipped` excludes clips handled as a concatemer or
+    tandem.

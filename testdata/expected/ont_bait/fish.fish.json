@@ -12,6 +12,10 @@
         "reads": 9,
         "bp": 119796
       },
+      "tandem": {
+        "reads": 1,
+        "bp": 36686
+      },
       "unmapped": {
         "reads": 4,
         "bp": 12595
@@ -26,12 +30,18 @@
     "reads": 0,
     "records": 0
   },
+  "concatemer_detected": {
+    "reads": 15
+  },
+  "tandem_detected": {
+    "reads": 1
+  },
   "origin_crossing_skipped": {
-    "reads": 839,
-    "records": 1685,
-    "clips": 1694,
-    "clips_exact": 1628,
-    "clips_near_end": 66
+    "reads": 825,
+    "records": 1648,
+    "clips": 1648,
+    "clips_exact": 1585,
+    "clips_near_end": 63
   },
   "records": {
     "total": 6977,
@@ -49,37 +59,87 @@
       "name": "1",
       "length_bp": 1934799,
       "circular": true,
-      "circular_by": "default"
+      "circular_by": "default",
+      "origin_crossing_reads": 12,
+      "concatemer_reads": 0,
+      "multimer": null
     },
     {
       "name": "4",
       "length_bp": 20593,
       "circular": true,
-      "circular_by": "default"
+      "circular_by": "default",
+      "origin_crossing_reads": 185,
+      "concatemer_reads": 0,
+      "multimer": {
+        "reads": 400,
+        "reads_monomer": 400,
+        "reads_dimer": 0,
+        "reads_trimer": 0,
+        "reads_4plus_units": 0,
+        "multimer_bp_frac": 0.0,
+        "frac_multimer_given_long": null
+      }
     },
     {
       "name": "5",
       "length_bp": 19989,
       "circular": true,
-      "circular_by": "default"
+      "circular_by": "default",
+      "origin_crossing_reads": 193,
+      "concatemer_reads": 2,
+      "multimer": {
+        "reads": 472,
+        "reads_monomer": 470,
+        "reads_dimer": 2,
+        "reads_trimer": 0,
+        "reads_4plus_units": 0,
+        "multimer_bp_frac": 0.0191,
+        "frac_multimer_given_long": null
+      }
     },
     {
       "name": "3",
       "length_bp": 23726,
       "circular": true,
-      "circular_by": "default"
+      "circular_by": "default",
+      "origin_crossing_reads": 136,
+      "concatemer_reads": 9,
+      "multimer": {
+        "reads": 336,
+        "reads_monomer": 331,
+        "reads_dimer": 4,
+        "reads_trimer": 1,
+        "reads_4plus_units": 0,
+        "multimer_bp_frac": 0.0668,
+        "frac_multimer_given_long": null
+      }
     },
     {
       "name": "2",
       "length_bp": 69597,
       "circular": true,
-      "circular_by": "default"
+      "circular_by": "default",
+      "origin_crossing_reads": 62,
+      "concatemer_reads": 0,
+      "multimer": null
     },
     {
       "name": "6",
       "length_bp": 10330,
       "circular": true,
-      "circular_by": "default"
+      "circular_by": "default",
+      "origin_crossing_reads": 237,
+      "concatemer_reads": 4,
+      "multimer": {
+        "reads": 354,
+        "reads_monomer": 350,
+        "reads_dimer": 4,
+        "reads_trimer": 0,
+        "reads_4plus_units": 0,
+        "multimer_bp_frac": 0.0324,
+        "frac_multimer_given_long": null
+      }
     }
   ],
   "params": {
@@ -100,6 +160,14 @@
     "hairpin_max_gap": 200,
     "hairpin_max_gap_frac": 0.02,
     "hairpin_min_arm_frac": 0.2,
+    "keep_concatemers": false,
+    "tandems": true,
+    "concatemer_min_segment": 500,
+    "concatemer_min_units": 1.2,
+    "tandem_min_period": 1000,
+    "chain_max_gap": 200,
+    "chain_max_gap_frac": 0.02,
+    "concatemer_max_contig": 50000,
     "indel_min_len": 50,
     "indel_merge_gap": 50,
     "indel_piece_min": 10,

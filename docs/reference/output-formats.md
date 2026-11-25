@@ -33,6 +33,7 @@ VCF `POS` is 1-based. One exception: the `sa` column of `P.fish.tsv` copies posi
 | `qc` | `P.haplotypes.tsv` | [TSV](#phaplotypestsv) |
 | `fish` | `P.fastq.gz` | [FASTQ](#pfastqgz) |
 | `fish` | `P.fish.tsv` | [TSV](#pfishtsv) |
+| `fish` | `P.structure.tsv` | [TSV](#pstructuretsv) |
 | `fish` | `P.lengths.tsv` | [TSV](#plengthstsv) |
 | `fish` | `P.fish.json` | [JSON](#pfishjson) |
 | `fish` | `P.bait_ref.fa`, `P.bait.cram` (with `--bait`) | [FASTA, CRAM](#pbait_reffa-pbaitcram) |
@@ -257,6 +258,27 @@ row each. The `detail` values per reason are listed in [fish.md](../commands/fis
 `arm1` is the arm earlier in the read, `q` coordinates are 0-based half-open in original read
 orientation, and `r` coordinates are 0-based half-open reference coordinates.
 
+### P.structure.tsv
+
+One row per read with a detected structure, always written (header only when there is none), with a
+header line, sorted by read name: `read`, `length`, `structure` (`hairpin`, `concatemer` or
+`tandem`), `contig`, `strand` (the chain's strand, or the hairpin event's record), `period`,
+`units`, `arms`, `selected` (`yes`/`no`).
+
+- `concatemer`: `period` = the contig length, `units` = summed aligned query length of the chain /
+  contig length (two decimals, >= 1.2). `tandem`: `period` = the median back jump of the chain,
+  `units` = aligned query length of the chain / `period`. `arms` is `.` for both; for `hairpin`,
+  `period` and `units` are `.` and `arms` is the hairpin `detail` (`arm1=q..,r..,<strand>;arm2=...`).
+- A read has one structure (precedence hairpin > concatemer > tandem). Plain origin crossings are
+  not listed (use `contigs[].origin_crossing_reads` in `P.fish.json`).
+- `selected` is `yes` when the read is in `P.fish.tsv` with the reason of that structure; a
+  concatemer is `no` unless `--keep-concatemers`, a tandem is `no` with `--no-tandems`, a hairpin
+  `no` with `--no-hairpins`. The structure label (hairpin > concatemer >
+  tandem) does not depend on `--scope`, `--no-clips` or `--no-hairpins`: a hairpin read that is out
+  of scope or under `--no-clips` is still listed (`selected = no`), so the `hairpin` rows can
+  outnumber `hairpin_detected`.
+- Byte-identical across thread counts.
+
 ### P.lengths.tsv
 
 Read-length histogram across the input alignment, always written (even when no reads are selected).
@@ -284,14 +306,29 @@ thresholds used, and timing. Top-level keys:
 | `format_version` | 1 |
 | `reads` | `reads`, `bp` (distinct selected reads, summed length) and `by_reason` (per reason: `reads`, `bp`; a read can count under more than one) |
 | `cap` | reads dropped by `--clip-cap`: `reads`, `bp` (summed read length); zeros when the cap is off. Dropped reads are not in `reads` or the outputs; see [fish.md](../commands/fish.md#capping-clip-reads) |
-| `hairpin_detected` | `reads`, `records` with >= 1 clip that is clip-enabled (not `--no-clips`), in scope (`--scope`), not an origin crossing, and converted to `hairpin` (or would be converted under `--no-hairpins`); 0 when `--no-clips` is set |
-| `origin_crossing_skipped` | origin-crossing clips skipped on circular contigs before `--scope` filtering (unselected; all 0 when `--no-clips` is set): `reads` (distinct reads), `records` (distinct records), `clips` (skipped clip events: `clips_exact + clips_near_end`; a record skipped at both ends counts 2 clips, 1 record), `clips_exact` (at exact contig ends), `clips_near_end` (via `--circ-end-tol` + `SA`) |
+| `hairpin_detected` | (0.1.2 meaning, unchanged) `reads`, `records` with >= 1 clip that is clip-enabled (not `--no-clips`), in scope (`--scope`), not an origin crossing, and converted to `hairpin` (or would be converted under `--no-hairpins`); 0 when `--no-clips` is set. It can be smaller than the number of `hairpin` rows in `P.structure.tsv`, which also lists hairpin reads that are out of scope or under `--no-clips` |
+| `concatemer_detected` | `reads` with a circular concatemer (a read counts under one structure: hairpin > concatemer > tandem); independent of `--keep-concatemers`; see [fish.md](../commands/fish.md#concatemers-and-tandems) |
+| `tandem_detected` | `reads` with a tandem; independent of `--no-tandems` |
+| `origin_crossing_skipped` | origin-crossing clips skipped on circular contigs before `--scope` filtering (unselected; all 0 when `--no-clips` is set): `reads` (distinct reads), `records` (distinct records), `clips` (skipped clip events: `clips_exact + clips_near_end`; a record skipped at both ends counts 2 clips, 1 record), `clips_exact` (at exact contig ends), `clips_near_end` (via `--circ-end-tol` + `SA`). Clips handled as a concatemer / tandem are not counted here (the values drop against 0.1.2 on plasmid-rich data; the meaning is unchanged) |
 | `records` | input record counts: `total`, `primary`, `supplementary`, `secondary`, `duplicate`, `qcfail`, `unmapped`, `mapped_bp`, `unmapped_bp` |
-| `contigs` | per-contig circularity in reference order: `name`, `length_bp`, `circular`, `circular_by` (`flag` from `--linear`, `header` from `circular=`/`topology=`, or `default` when absent/conflicting) |
-| `params` | `scope`, `min_tier`, `finding_pad`, `unmapped`, `clips`, `hairpins`, `indels`, `linked`, `bait`, `locus`, `locus_flank`, `clip_min_len`, `circ_end_tol`, `hairpin_min_overlap`, `hairpin_max_gap`, `hairpin_max_gap_frac`, `hairpin_min_arm_frac`, `indel_min_len`, `indel_merge_gap`, `indel_piece_min`, `clip_cap` (0 = off), `clip_bin` |
+| `contigs` | per-contig in reference order: `name`, `length_bp`, `circular`, `circular_by` (`flag` from `--linear`, `header` from `circular=`/`topology=`, or `default` when absent/conflicting), `origin_crossing_reads` (distinct reads with >= 1 origin-crossing clip on this contig that is not part of a concatemer / tandem chain: evidence that it is circular; 0 on linear contigs), `concatemer_reads` (distinct reads with a circular-concatemer call on this contig) and `multimer` (below); `origin_crossing_reads` and `concatemer_reads` do not depend on `--no-clips`, `--scope` or `--keep-concatemers` |
+| `params` | `scope`, `min_tier`, `finding_pad`, `unmapped`, `clips`, `hairpins`, `indels`, `linked`, `bait`, `locus`, `locus_flank`, `clip_min_len`, `circ_end_tol`, `hairpin_min_overlap`, `hairpin_max_gap`, `hairpin_max_gap_frac`, `hairpin_min_arm_frac`, `keep_concatemers`, `tandems` (off with `--no-tandems`), `concatemer_min_segment`, `concatemer_min_units`, `tandem_min_period`, `chain_max_gap`, `chain_max_gap_frac`, `concatemer_max_contig`, `indel_min_len`, `indel_merge_gap`, `indel_piece_min`, `clip_cap` (0 = off), `clip_bin` |
 | `bait` | `null` without `--bait`; see below |
 | `notes` | categories turned off or skipped (e.g. `linked` without `--haplotypes`) |
 | `timing_s` | `pass`, `total` (seconds) |
+
+`contigs[].multimer` is `null` except for circular contigs of length <= `--concatemer-max-contig`
+(default 50,000), where it is `{reads, reads_monomer, reads_dimer, reads_trimer,
+reads_4plus_units, multimer_bp_frac, frac_multimer_given_long}`. It covers every counted read with
+a primary record on the contig, selected or not, so it is an assembly-wide statistic. A read's
+*units* are its aligned query length on the contig (union of the query intervals of its primary
+record and its `SA` segments on that contig, on the dominant strand) divided by the contig length,
+rounded half-up and at least 1: monomer < 1.5 units, dimer [1.5, 2.5), trimer [2.5, 3.5), 4+ >=
+3.5. `multimer_bp_frac` is the share of those reads' bp in reads with >= 2 units (4 decimals);
+`frac_multimer_given_long` is the share of reads at least 2 contig lengths long that carry >= 2
+units (4 decimals), `null` with fewer than 5 such reads. (The units rounding differs from the
+>= 1.2 *call* of `concatemer_detected`: a 1.3-unit read is a concatemer call but a monomer in this
+table.)
 
 With `--bait`, the `bait` block holds the bait contigs (`contigs`: `name`, `length`, `reads`, `bp`,
 `mapq0_reads` each), the overall selected `reads`/`bp` and `mapq0_reads` count, the lift stats

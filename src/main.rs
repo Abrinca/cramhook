@@ -462,6 +462,33 @@ struct FishArgs {
     /// Hairpin: minimum query length of each arm as a fraction of read length.
     #[arg(long, hide = true, default_value_t = 0.2, value_parser = parse_max_de)]
     hairpin_min_arm_frac: f64,
+    /// Also select circular concatemers (reads spanning >= 1.2 units of a
+    /// circular contig; reason `concatemer`). By default the assembly explains
+    /// them: they are only counted and listed in `P.structure.tsv`.
+    #[arg(long)]
+    keep_concatemers: bool,
+    /// Do not select `tandem` reads (back-to-back same-strand segments that jump
+    /// back >= 1 kb on the reference); they do not fall back to `clip`.
+    #[arg(long)]
+    no_tandems: bool,
+    /// Concatemer/tandem: minimum query length of each chain segment (bp).
+    #[arg(long, hide = true, default_value_t = 500)]
+    concatemer_min_segment: u64,
+    /// Concatemer/tandem: minimum units (aligned query length / period).
+    #[arg(long, hide = true, default_value_t = 1.2, value_parser = parse_max_de)]
+    concatemer_min_units: f64,
+    /// Tandem: minimum back jump = minimum period (bp).
+    #[arg(long, hide = true, default_value_t = 1000)]
+    tandem_min_period: u64,
+    /// Concatemer/tandem: minimum absolute tolerance (bp) for the query gap/overlap between back-to-back segments.
+    #[arg(long, hide = true, default_value_t = 200)]
+    chain_max_gap: u64,
+    /// Concatemer/tandem: fractional tolerance (× read length) for that gap/overlap.
+    #[arg(long, hide = true, default_value_t = 0.02, value_parser = parse_max_de)]
+    chain_max_gap_frac: f64,
+    /// Per-contig multimer statistics are reported for circular contigs up to this length (bp).
+    #[arg(long, hide = true, default_value_t = 50_000)]
+    concatemer_max_contig: u64,
     /// Minimum merged large-indel size.
     #[arg(long, default_value_t = 50)]
     indel_min_len: u32,
@@ -997,6 +1024,14 @@ fn run_fish_cmd(a: FishArgs) -> Result<()> {
         hairpin_max_gap: a.hairpin_max_gap,
         hairpin_max_gap_frac: a.hairpin_max_gap_frac,
         hairpin_min_arm_frac: a.hairpin_min_arm_frac,
+        keep_concatemers: a.keep_concatemers,
+        no_tandems: a.no_tandems,
+        concatemer_min_segment: a.concatemer_min_segment,
+        concatemer_min_units: a.concatemer_min_units,
+        tandem_min_period: a.tandem_min_period,
+        chain_max_gap: a.chain_max_gap,
+        chain_max_gap_frac: a.chain_max_gap_frac,
+        concatemer_max_contig: a.concatemer_max_contig,
         indel_min_len: a.indel_min_len,
         indel_merge_gap: a.indel_merge_gap,
         indel_piece_min: a.indel_piece_min,
